@@ -8,6 +8,57 @@
 
 :root {
   color-scheme: dark;
+const dockerControlInFlight = new Set();
+
+async function requestDockerAction(container, action, buttons, status, state, detail, logPanel, logOutput) {
+  if ((action === "stop" || action === "restart") &&
+      !window.confirm(`${action === "stop" ? "Stop" : "Restart"} ${container}?`)) {
+    return;
+  }
+  if (dockerControlInFlight.has(container)) return;
+
+  dockerControlInFlight.add(container);
+  buttons.forEach(button => { button.disabled = true; });
+  status.className = "docker-control-status";
+  status.textContent = `${action} requested...`;
+  try {
+    const response = await fetch("/api/docker/control", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({container, action})
+    });
+    if (response.status === 401) { location = "/login"; return; }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.detail || result.message || `HTTP ${response.status}`);
+    }
+    if (result.status === "failed") {
+      throw new Error(result.message || "Docker action failed");
+    }
+    if (action === "logs") {
+      logOutput.textContent = result.logs || "No recent logs.";
+      logPanel.style.display = "block";
+    }
+    if (result.state) state.textContent = `${result.state} · ${result.health || "unknown"}`;
+    if (result.state) detail.textContent = `Container status updated · Restarts will appear on the next health poll`;
+    status.className = "docker-control-status ok";
+    status.textContent = result.status === "pending"
+      ? `${action} queued; waiting for host controller`
+      : (result.message || `${action} completed`);
+    if (action !== "logs") {
+      setTimeout(() => pollReliability(false).catch(() => {}), 5000);
+    }
+  } catch (error) {
+    status.className = "docker-control-status error";
+    status.textContent = error.message || "Docker action failed";
+  } finally {
+    dockerControlInFlight.delete(container);
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
+
   --bg: #0b1018;
   --card: #141c27;
   --line: #263244;
@@ -687,6 +738,59 @@ button:hover { border-color: var(--acc); }
 }
 #rel-container-list > div > span,
 #rel-container-list > div > strong {
+  overflow-wrap: anywhere;
+}
+.docker-card-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+.docker-card-controls button {
+  min-width: 58px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-bright);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.docker-card-controls button:hover:not(:disabled) {
+  border-color: var(--acc);
+  color: var(--acc-soft);
+}
+.docker-card-controls button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+.docker-control-status {
+  display: block;
+  flex-basis: 100%;
+  min-height: 16px;
+  color: var(--mute);
+  font-size: 11px;
+}
+.docker-control-status.ok { color: var(--green); }
+.docker-control-status.error { color: var(--red); }
+.docker-log-panel {
+  display: none;
+  flex-basis: 100%;
+  max-height: 260px;
+  margin-top: 5px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: #080b10;
+}
+.docker-log-panel pre {
+  margin: 0;
+  padding: 10px;
+  color: var(--soft);
+  font: 11px/1.55 Consolas, monospace;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
@@ -1708,7 +1812,38 @@ async function pollReliability(schedule = true){
         detail.textContent =
           `Restarts: ${item.restarts === null ? "Unknown" : item.restarts}`;
 
-        card.append(title, status, detail);
+        const controls = document.createElement("div");
+        controls.className = "docker-card-controls";
+        const controlStatus = document.createElement("span");
+        controlStatus.className = "docker-control-status";
+        const logPanel = document.createElement("div");
+        logPanel.className = "docker-log-panel";
+        const logOutput = document.createElement("pre");
+        logPanel.append(logOutput);
+        const buttons = [];
+        const authorized = name === "imfs-pg-m4";
+        const addControl = (action, enabled) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = action[0].toUpperCase() + action.slice(1);
+          button.disabled = !authorized || !enabled;
+          button.title = authorized ? `${action} ${name}` : "Container control is not enabled for this container";
+          button.addEventListener("click", () => requestDockerAction(
+            name, action, buttons, controlStatus, status, detail, logPanel, logOutput
+          ));
+          buttons.push(button);
+          controls.append(button);
+        };
+        addControl("start", item.state !== "running");
+        addControl("stop", item.state === "running");
+        addControl("restart", item.state === "running");
+        addControl("logs", true);
+        const closeLogs = document.createElement("button");
+        closeLogs.type = "button";
+        closeLogs.textContent = "Close logs";
+        closeLogs.addEventListener("click", () => { logPanel.style.display = "none"; });
+        controls.append(controlStatus, closeLogs, logPanel);
+        card.append(title, status, detail, controls);
         list.append(card);
       }
     }

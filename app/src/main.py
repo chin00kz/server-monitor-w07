@@ -8,6 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from argon2 import PasswordHasher
@@ -104,6 +105,14 @@ def require_login(request: Request):
         raise HTTPException(401, "login required")
 
 
+def require_management(request: Request):
+    require_login(request)
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    host = request.headers.get("host")
+    if not origin or not host or urlsplit(origin).netloc != host:
+        raise HTTPException(403, "same-origin request required")
+
+
 class Login(BaseModel):
     password: str
 
@@ -177,6 +186,48 @@ HOST_TRIGGER_FILE = Path("/data/activity/refresh.request")
 HOST_STATUS_FILE = Path("/data/activity/refresh.status")
 last_host_request_time = 0.0
 host_request_lock = threading.Lock()
+DOCKER_CONTROL_ROOT = Path("/data/docker-control")
+DOCKER_CONTROL_REQUEST = DOCKER_CONTROL_ROOT / "request.json"
+DOCKER_CONTROL_STATUS = DOCKER_CONTROL_ROOT / "status.json"
+DOCKER_CONTROL_ACTIONS = {"start", "stop", "restart", "logs"}
+DOCKER_CONTROL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+DOCKER_CONTROL_EXCLUDED = {"server-monitor"}
+last_docker_action_time: dict[str, float] = {}
+docker_control_lock = threading.Lock()
+
+
+class DockerControlRequest(BaseModel):
+    container: str
+    action: str
+
+
+def configured_docker_containers():
+    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "imfs-pg-m4")
+    return {
+        name.strip()
+        for name in raw.split(",")
+        if DOCKER_CONTROL_NAME_RE.fullmatch(name.strip())
+        and name.strip() not in DOCKER_CONTROL_EXCLUDED
+    }
+
+
+def write_control_json(path: Path, payload: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n")
+    try:
+        os.chmod(temporary, 0o664)
+    except OSError:
+        pass
+    os.replace(temporary, path)
+
+
+def read_control_status():
+    try:
+        value = json.loads(DOCKER_CONTROL_STATUS.read_text())
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 @app.post("/api/refresh", dependencies=[Depends(require_login)])
@@ -239,6 +290,63 @@ def refresh_host(timeout: float = 8.0):
         "status": "pending",
         "request_id": req_id,
         "message": "Host collection initiated or in progress",
+    }
+
+
+@app.post("/api/docker/control", dependencies=[Depends(require_management)])
+def docker_control(body: DockerControlRequest):
+    """Submit one allowlisted Docker action to the host-side controller."""
+    container = body.container.strip()
+    action = body.action.strip().lower()
+    if not DOCKER_CONTROL_NAME_RE.fullmatch(container):
+        raise HTTPException(400, "invalid container name")
+    if action not in DOCKER_CONTROL_ACTIONS:
+        raise HTTPException(400, "unsupported Docker action")
+    if container not in configured_docker_containers():
+        raise HTTPException(403, "container is not authorized")
+
+    now = time.time()
+    with docker_control_lock:
+        if DOCKER_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a Docker action is already queued")
+        status = read_control_status()
+        if status and status.get("status") in {"queued", "running"}:
+            status_time = status.get("timestamp", 0)
+            if isinstance(status_time, (int, float)) and now - status_time < 120:
+                raise HTTPException(409, "a Docker action is already running")
+        if now - last_docker_action_time.get(container, 0) < 5:
+            raise HTTPException(429, "Docker action requested recently")
+
+        request_id = secrets.token_hex(16)
+        request = {
+            "request_id": request_id,
+            "container": container,
+            "action": action,
+            "created_at": int(now),
+        }
+        last_docker_action_time[container] = now
+        write_control_json(DOCKER_CONTROL_STATUS, {
+            **request,
+            "status": "queued",
+            "message": "Docker action queued",
+        })
+        write_control_json(DOCKER_CONTROL_REQUEST, request)
+
+    deadline = time.monotonic() + 35
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        status = read_control_status()
+        if not status or status.get("request_id") != request_id:
+            continue
+        if status.get("status") in {"completed", "failed"}:
+            return status
+
+    return {
+        "request_id": request_id,
+        "container": container,
+        "action": action,
+        "status": "pending",
+        "message": "Docker controller did not acknowledge within the timeout",
     }
 
 

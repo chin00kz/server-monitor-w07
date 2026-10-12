@@ -28,6 +28,7 @@ The dashboard is organized into these working sections:
 - Maintenance-awareness checks for PostgreSQL, SSH, and local sessions.
 - Telegram alert delivery, Telegram control polling, heartbeat monitoring, and alert history.
 - Refresh Now for a fresh application sample plus an acknowledged host collection covering PostgreSQL, Docker, storage, and network checks.
+- Docker Control v1 for the explicitly allowlisted `imfs-pg-m4`: start, confirmed stop/restart, and capped read-only logs.
 - Automatic polling continues independently of manual refreshes.
 
 ## Architecture
@@ -41,6 +42,8 @@ The dashboard is organized into these working sections:
 - **Alert workers**: scripts in `alerts/` handle alert delivery, heartbeat checks, and Telegram controls using files under `secrets/` and `data/alerts/`.
 
 The dashboard container and host collector share `data/`. The container writes a manual refresh request; the host-side systemd path unit starts the existing oneshot collector, which writes a request-matched acknowledgment.
+
+Docker control uses a separate host-side controller and request/response files under `data/docker-control/`. The dashboard never receives Docker socket access. The controller runs with narrowly scoped Docker-group access, accepts only configured names and fixed actions, excludes `server-monitor`, serializes requests, limits logs, and records outcomes in `data/activity/docker-control.log`.
 
 ## Ubuntu deployment
 
@@ -99,6 +102,8 @@ sudo systemctl enable --now server-activity-monitor.path
 
 The existing `server-activity-monitor.service` must run `activity/collect.py`. Keep its existing timer enabled. Do not install the removed daemon service; on-demand collection uses the path unit instead.
 
+For Docker Control v1, install `activity/docker_control.py`, `activity/server-docker-control.service`, and `activity/server-docker-control.path` on the host as described in [activity/DEPLOYMENT.md](activity/DEPLOYMENT.md). The controller service is pinned to `imfs-pg-m4` and requires the host account to have Docker-group access. Do not mount the Docker socket into the dashboard container or add `server-monitor` to the allowlist.
+
 Refresh Now performs two authenticated actions: it samples application hardware metrics immediately, then submits a host request. The host collector serializes scheduled and manual runs with a bounded lock, collects live PostgreSQL, Docker, storage, and network data, writes the snapshot atomically, and acknowledges the matching request ID. Network probes are rate-limited during manual refreshes.
 
 ## Security design
@@ -110,6 +115,7 @@ Refresh Now performs two authenticated actions: it samples application hardware 
 - `/proc` and `/sys` are mounted read-only for telemetry. The application does not expose those mounts directly.
 - Responses use no-store security headers and the application disables FastAPI documentation endpoints.
 - Runtime data, databases, backups, Python caches, virtual environments, secrets, and `.env` files are excluded by `.gitignore`.
+- Docker management requires an existing authenticated session and same-origin POST headers. v1 has no separate role database, so an authenticated dashboard user is treated as an authorized operator; review access to the dashboard accordingly.
 
 Tailscale access is an access boundary, not a replacement for authentication. Keep the dashboard password and host access controls managed separately.
 

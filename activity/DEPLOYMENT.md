@@ -12,3 +12,19 @@ Production keeps the existing `server-activity-monitor.service` oneshot and its 
    ```
 
 The dashboard container writes `data/activity/refresh.request`; the path unit starts the existing oneshot. The collector removes the request only after it has acquired its bounded lock, so a scheduled/manual overlap is picked up by the next service run.
+
+## Docker control v1
+
+Docker control is separate from the dashboard container. Do not mount `/var/run/docker.sock` into Compose. Install the host controller and path unit only during an approved maintenance window:
+
+```sh
+sudo install -m 0755 activity/docker_control.py /home/chinookz/homelab/docker/server-monitor/activity/docker_control.py
+sudo install -m 0644 activity/server-docker-control.service /etc/systemd/system/server-docker-control.service
+sudo install -m 0644 activity/server-docker-control.path /etc/systemd/system/server-docker-control.path
+sudo install -d -o chinookz -g chinookz -m 775 data/docker-control
+sudo usermod -aG docker chinookz
+sudo systemctl daemon-reload
+sudo systemctl enable --now server-docker-control.path
+```
+
+The service runs as `chinookz` with only supplementary Docker-group access and is explicitly configured for `imfs-pg-m4`. Keep `server-monitor` excluded and do not add other containers to the allowlist without a separate review. The controller writes status to `data/docker-control/status.json` and audit records to `data/activity/docker-control.log`; both paths must be writable by `chinookz`. Docker control should be validated with a disposable container before any approved M4 test. No control action is required for normal dashboard operation.
