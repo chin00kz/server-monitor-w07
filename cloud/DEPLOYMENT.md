@@ -6,11 +6,9 @@ This is an optional read-only cloud status path. It does not replace or modify t
 
 1. Create a Supabase project.
 2. Run `supabase/schema.sql` in the SQL editor.
-3. Create individual team users in Supabase Auth.
-4. Insert each approved Auth user ID into `public.dashboard_members`.
-5. Keep the Supabase service-role key only on Ubuntu. Never place it in Vercel or browser code.
+3. Keep the Supabase service-role key only on Ubuntu. Never place it in Vercel or browser code.
 
-The `node_status` table stores one latest row per node. The database trigger sets `received_at` from the Supabase clock on every insert or update. RLS allows reads only to authenticated users listed in `dashboard_members`; publisher writes use the service-role key and bypass RLS.
+The `node_status` table stores one latest row per node. The database trigger sets `received_at` from the Supabase clock on every insert or update. Direct table reads are denied to API roles. The dashboard's anon/publishable key can execute only the read-only `read_node_status` function; publisher writes use the service-role key and bypass RLS.
 
 ## Ubuntu publisher
 
@@ -48,10 +46,12 @@ Deploy `cloud-dashboard/` as a separate Vercel project. Configure these server-s
 
 ```dotenv
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=replace-with-anon-key
+SUPABASE_READONLY_KEY=replace-with-anon-or-publishable-key
 CLOUD_NODE_ID=workstation-07-5d
+DASHBOARD_PASSWORD_HASH=scrypt$16384$8$1$replace-with-base64url-salt$replace-with-base64url-hash
+DASHBOARD_SESSION_SECRET=replace-with-at-least-32-random-bytes
 ```
 
-The anon key is used by server-side Vercel functions for Supabase Auth and RLS reads. It is not a publisher credential. The dashboard uses Supabase Auth email/password sessions, and status data is returned only after the Vercel API confirms the authenticated user and RLS query.
+All variables are server-side only. The Supabase key is not a publisher credential and is restricted by database grants to the read-only status RPC. The dashboard verifies the shared password against its scrypt hash on the server, applies a small in-process login limiter, and issues signed one-hour cookies. Every status request verifies that cookie before accessing Supabase.
 
 No Ubuntu port, reverse proxy, Tailscale route, Docker socket, or local dashboard change is required for Vercel access.

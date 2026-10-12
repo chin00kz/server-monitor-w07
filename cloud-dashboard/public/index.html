@@ -12,8 +12,8 @@
 </head>
 <body>
 <section id="login-view" class="login panel">
-  <div class="eyebrow">SERVER MONITOR / CLOUD</div><h1>Team access</h1>
-  <form id="login-form"><div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required></div><div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div><button class="primary" type="submit">Sign in</button><div id="login-error" class="error"></div></form>
+  <div class="eyebrow">SERVER MONITOR / CLOUD</div><h1>Shared access</h1>
+  <form id="login-form"><div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div><button class="primary" type="submit">Sign in</button><div id="login-error" class="error"></div></form>
 </section>
 <main id="dashboard-view" class="shell hidden">
   <header class="topbar"><div><div class="eyebrow">CLOUD STATUS / READ ONLY</div><h1 id="node-name">Server Monitor</h1><p>Last known node telemetry</p></div><button id="logout" class="ghost" type="button">Sign out</button></header>
@@ -62,7 +62,7 @@ function renderConnection(result) {
   setValue("host-status", state === "live" ? "Online" : "Connection lost", state === "live" ? "good" : state === "stale" ? "warn" : "bad"); setValue("telemetry-status", state === "live" ? "Live" : state === "stale" ? "Stale" : "Disconnected", state === "live" ? "good" : state === "stale" ? "warn" : "bad"); $("#last-update").textContent = result.received_at ? formatTime(result.received_at) : "Never";
 }
 async function loadStatus() { const response = await fetch("/api/status", {cache:"no-store"}); if (response.status === 401) { loginView.classList.remove("hidden"); dashboardView.classList.add("hidden"); return; } if (!response.ok) throw new Error("Status unavailable"); const result = await response.json(); loginView.classList.add("hidden"); dashboardView.classList.remove("hidden"); renderConnection(result); renderPayload(result); }
-$("#login-form").addEventListener("submit", async event => { event.preventDefault(); $("#login-error").textContent = ""; const response = await fetch("/api/auth/login", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:$("#email").value,password:$("#password").value})}); if (!response.ok) { $("#login-error").textContent = "Sign-in failed."; return; } await loadStatus(); });
+$("#login-form").addEventListener("submit", async event => { event.preventDefault(); $("#login-error").textContent = ""; const response = await fetch("/api/auth/login", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("#password").value})}); if (!response.ok) { $("#login-error").textContent = response.status === 429 ? "Too many attempts. Try again later." : "Sign-in failed."; return; } $("#password").value = ""; await loadStatus(); });
 $("#logout").addEventListener("click", async () => { await fetch("/api/auth/logout", {method:"POST"}); dashboardView.classList.add("hidden"); loginView.classList.remove("hidden"); });
 loadStatus().catch(() => { loginView.classList.remove("hidden"); dashboardView.classList.add("hidden"); });
 setInterval(() => loadStatus().catch(() => {}), 30000);

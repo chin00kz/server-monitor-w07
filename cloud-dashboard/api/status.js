@@ -1,4 +1,4 @@
-const {getAccessToken} = require("../lib/auth");
+const {verifySession} = require("../lib/auth");
 const {classifyReceipt, sanitizePayload} = require("../lib/status");
 
 module.exports = async function status(request, response) {
@@ -7,33 +7,26 @@ module.exports = async function status(request, response) {
     response.status(405).json({error: "method not allowed"});
     return;
   }
-  const accessToken = getAccessToken(request);
-  if (!accessToken) {
+  if (!verifySession(request)) {
     response.status(401).json({error: "authentication required"});
     return;
   }
   const baseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
-  const anonKey = process.env.SUPABASE_ANON_KEY;
+  const readOnlyKey = process.env.SUPABASE_READONLY_KEY;
   const nodeId = process.env.CLOUD_NODE_ID || "workstation-07-5d";
-  if (!baseUrl || !anonKey) {
+  if (!baseUrl || !readOnlyKey) {
     response.status(500).json({error: "cloud status is not configured"});
     return;
   }
   const headers = {
-    apikey: anonKey,
-    Authorization: `Bearer ${accessToken}`
+    apikey: readOnlyKey,
+    Authorization: `Bearer ${readOnlyKey}`,
+    "Content-Type": "application/json"
   };
   try {
-    const userResponse = await fetch(`${baseUrl}/auth/v1/user`, {headers});
-    if (!userResponse.ok) {
-      response.status(401).json({error: "authentication required"});
-      return;
-    }
-    const query = new URL(`${baseUrl}/rest/v1/node_status`);
-    query.searchParams.set("select", "node_id,observed_at,received_at,payload");
-    query.searchParams.set("node_id", `eq.${nodeId}`);
-    query.searchParams.set("limit", "1");
-    const dataResponse = await fetch(query, {headers});
+    const dataResponse = await fetch(`${baseUrl}/rest/v1/rpc/read_node_status`, {
+      method: "POST", headers, body: JSON.stringify({requested_node_id: nodeId})
+    });
     if (!dataResponse.ok) {
       response.status(502).json({error: "cloud status unavailable"});
       return;

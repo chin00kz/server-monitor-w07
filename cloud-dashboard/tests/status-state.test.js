@@ -1,7 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {classifyReceipt, sanitizePayload} = require("../lib/status");
-const {getAccessToken} = require("../lib/auth");
 const statusHandler = require("../api/status");
 
 test("receipt timestamps produce live, stale, and disconnected states", () => {
@@ -27,8 +26,4 @@ test("status endpoint rejects unauthenticated requests", async () => {
   const response = {headers: {}, setHeader(key, value) {this.headers[key] = value;}, status(code) {this.code = code; return this;}, json(body) {this.body = body;}};
   await statusHandler({method: "GET", headers: {}}, response);
   assert.equal(response.code, 401);
-});
-
-test("malformed access cookies are rejected", () => {
-  assert.equal(getAccessToken({headers: {cookie: "cloud_access=%"}}), null);
 });
