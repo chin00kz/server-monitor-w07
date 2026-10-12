@@ -1799,13 +1799,21 @@ async function triggerRefresh(){
   }
 
   // Step 2: Request fresh host collection (PostgreSQL, Docker, network, storage).
-  // Await completion signal from host collector daemon if active.
+  // Awaits acknowledgment from host runner triggered by systemd .path unit.
   let hostRefreshed = false;
+  let hostPending = false;
+  let hostRateLimited = false;
   try {
-    const hRes = await fetch("/api/refresh/host", {method: "POST"});
+    const hRes = await fetch("/api/refresh/host?timeout=8", {method: "POST"});
     if (hRes.ok) {
       const hData = await hRes.json();
-      if (hData.status === "completed") hostRefreshed = true;
+      if (hData.status === "completed") {
+        hostRefreshed = true;
+      } else if (hData.status === "pending") {
+        hostPending = true;
+      } else if (hData.status === "rate_limited") {
+        hostRateLimited = true;
+      }
     }
   } catch (e) {}
 
@@ -1843,9 +1851,15 @@ async function triggerRefresh(){
     } else if (failedChecks.length > 0) {
       status.className = "refresh-status err";
       status.textContent = `Live metrics fresh at ${timeStr} · ${failedChecks.length} host check${failedChecks.length === 1 ? "" : "s"} failed`;
-    } else if (hostRefreshed || (hostAgeSec !== null && hostAgeSec <= 5)) {
+    } else if (hostRefreshed) {
       status.className = "refresh-status";
       status.textContent = `All checks fresh at ${timeStr}`;
+    } else if (hostPending) {
+      status.className = "refresh-status";
+      status.textContent = `Live metrics fresh at ${timeStr} · Host checks running`;
+    } else if (hostRateLimited) {
+      status.className = "refresh-status err";
+      status.textContent = `Live metrics fresh at ${timeStr} · Host refresh already queued`;
     } else if (hostIsStale) {
       status.className = "refresh-status";
       status.textContent = `Live metrics fresh at ${timeStr} · Host snapshot ${hostAgeSec}s old`;

@@ -190,24 +190,36 @@ def refresh_now():
 
 
 @app.post("/api/refresh/host", dependencies=[Depends(require_login)])
-def refresh_host():
-    """Request on-demand collection from host activity daemon and await completion."""
+def refresh_host(timeout: float = 8.0):
+    """Request on-demand collection via systemd path trigger and await completion."""
     global last_host_request_time
+    wait_time = max(1.0, min(float(timeout), 45.0))
+
     with host_request_lock:
         now = time.time()
-        # Rate limit host collection requests to once per 5 seconds
-        if now - last_host_request_time < 5.0:
-            return {"status": "rate_limited", "message": "Host refresh was requested recently"}
-        last_host_request_time = now
+        # Rate limit new host trigger creation to once per 5 seconds
+        if (
+            now - last_host_request_time < 5.0
+            or HOST_TRIGGER_FILE.exists()
+        ):
+            return {
+                "status": "rate_limited",
+                "message": "Host refresh is already queued or running",
+            }
 
         req_id = secrets.token_hex(8)
+        last_host_request_time = now
         HOST_TRIGGER_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp_trigger = HOST_TRIGGER_FILE.with_suffix(".tmp")
         tmp_trigger.write_text(json.dumps({"request_id": req_id, "timestamp": now}))
+        try:
+            os.chmod(tmp_trigger, 0o664)
+        except OSError:
+            pass
         os.replace(tmp_trigger, HOST_TRIGGER_FILE)
 
-    # Wait up to 10 seconds for host daemon to acknowledge completion
-    deadline = time.time() + 10.0
+    # Wait up to wait_time seconds for host runner to complete
+    deadline = time.time() + wait_time
     while time.time() < deadline:
         time.sleep(0.3)
         if HOST_STATUS_FILE.exists():
@@ -223,7 +235,11 @@ def refresh_host():
             except (OSError, ValueError):
                 pass
 
-    return {"status": "pending", "request_id": req_id, "message": "Host collection in progress"}
+    return {
+        "status": "pending",
+        "request_id": req_id,
+        "message": "Host collection initiated or in progress",
+    }
 
 
 

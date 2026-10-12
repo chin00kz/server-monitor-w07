@@ -1,0 +1,11 @@
+[Unit]
+Description=Trigger Server Activity Collection on Manual Refresh Request
+Documentation=https://github.com/chin00kz/server-monitor-w07
+
+[Path]
+PathChanged=/home/chinookz/homelab/docker/server-monitor/data/activity/refresh.request
+Unit=server-activity-monitor.service
+
+[Install]
+WantedBy=multi-user.target
+

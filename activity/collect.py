@@ -176,8 +176,8 @@ ACTIVE_INTERVAL = 300
 BACKUP_INTERVAL = 1800
 
 
-def collect_network():
-    """Refresh active network every 5m and backup connectivity every 30m."""
+def collect_network(force_probe=False):
+    """Refresh active network every 5m and backup connectivity every 30m, or on force_probe."""
     now = int(time.time())
 
     try:
@@ -191,7 +191,7 @@ def collect_network():
     last_backup = cache.get("backup_checked_at", 0)
 
     # Route selection is cheap to inspect and must never be cached.
-    # Connectivity probes retain their existing refresh intervals.
+    # Connectivity probes retain their existing refresh intervals unless forced.
     current_preferred = None
     try:
         route_now = subprocess.run(
@@ -218,8 +218,18 @@ def collect_network():
         and current_preferred != previous_preferred
     )
 
+    # Allow fresh probe on manual refresh, but rate-limit to at most once per 10s to prevent flooding
+    manual_probe_due = (
+        force_probe
+        and (
+            not isinstance(last_active, (int, float))
+            or now - last_active >= 10
+        )
+    )
+
     active_due = (
-        route_changed
+        manual_probe_due
+        or route_changed
         or ssid_changed
         or not isinstance(last_active, (int, float))
         or last_active > now
@@ -228,7 +238,8 @@ def collect_network():
     )
 
     backup_due = (
-        not isinstance(last_backup, (int, float))
+        manual_probe_due
+        or not isinstance(last_backup, (int, float))
         or last_backup > now
         or now - last_backup >= BACKUP_INTERVAL
         or "backup_result" not in cache
@@ -363,18 +374,44 @@ TRIGGER_FILE = ROOT / "data/activity/refresh.request"
 STATUS_FILE = ROOT / "data/activity/refresh.status"
 
 
-def run_collection(request_id=None):
+def run_collection(request_id=None, force_probe=False):
     """Run full host collection protected by an exclusive file lock."""
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with LOCK_FILE.open("w") as lock_fd:
+        locked = False
         try:
             import fcntl
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            deadline = time.monotonic() + 45.0
+            while True:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locked = True
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        return None
+                    time.sleep(0.25)
         except (ImportError, OSError):
             pass  # fcntl unavailable on Windows; proceed
 
         started = time.time()
         try:
+            # If request_id was not explicitly passed, check if a trigger file is waiting
+            if not request_id and TRIGGER_FILE.exists():
+                try:
+                    data = json.loads(TRIGGER_FILE.read_text())
+                    req_id = data.get("request_id")
+                    if isinstance(req_id, str) and req_id:
+                        request_id = req_id
+                        force_probe = True
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    try:
+                        TRIGGER_FILE.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
             snapshot = {
                 "timestamp": int(time.time()),
                 "request_id": request_id,
@@ -383,7 +420,7 @@ def run_collection(request_id=None):
                     for name in DATABASES
                 },
                 "sessions": collect_sessions(),
-                "network": collect_network(),
+                "network": collect_network(force_probe=force_probe),
                 "docker": collect_docker(),
                 "storage": collect_storage(),
             }
@@ -399,7 +436,7 @@ def run_collection(request_id=None):
                     json.dump(snapshot, file, separators=(",", ":"))
                     file.write("\n")
                 try:
-                    os.chmod(temporary, 0o640)
+                    os.chmod(temporary, 0o664)
                 except OSError:
                     pass
                 os.replace(temporary, OUTPUT)
@@ -407,7 +444,7 @@ def run_collection(request_id=None):
                 if os.path.exists(temporary):
                     os.unlink(temporary)
 
-            # Write status acknowledgment if this was triggered by a request
+            # Write status acknowledgment if this run fulfilled a request
             if request_id:
                 STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
                 temp_status = STATUS_FILE.with_suffix(".tmp")
@@ -418,64 +455,25 @@ def run_collection(request_id=None):
                     "duration_seconds": round(time.time() - started, 2),
                 }
                 temp_status.write_text(json.dumps(status_payload) + "\n")
+                try:
+                    os.chmod(temp_status, 0o664)
+                except OSError:
+                    pass
                 os.replace(temp_status, STATUS_FILE)
 
             return snapshot
         finally:
             try:
-                import fcntl
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                if locked:
+                    import fcntl
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
             except (ImportError, OSError):
                 pass
 
 
-def daemon_loop(interval=15):
-    """Continuously poll for on-demand requests and run periodic collection."""
-    print(f"Host activity collector daemon started (interval: {interval}s)...", flush=True)
-    last_scheduled = 0.0
-
-    while True:
-        try:
-            now = time.time()
-            triggered_id = None
-
-            if TRIGGER_FILE.exists():
-                try:
-                    data = json.loads(TRIGGER_FILE.read_text())
-                    req_id = data.get("request_id")
-                    req_time = data.get("timestamp", 0)
-                    # Ignore requests older than 60 seconds
-                    if now - req_time < 60:
-                        triggered_id = req_id
-                except (OSError, ValueError):
-                    pass
-                finally:
-                    try:
-                        TRIGGER_FILE.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-
-            if triggered_id:
-                print(f"Executing on-demand host collection for request: {triggered_id}", flush=True)
-                run_collection(request_id=triggered_id)
-                last_scheduled = time.time()
-            elif now - last_scheduled >= interval:
-                run_collection()
-                last_scheduled = time.time()
-
-        except Exception as exc:
-            print(f"Collector loop error: {repr(exc)}", flush=True)
-
-        time.sleep(1.0)
-
-
 def main():
-    import sys
-    if "--daemon" in sys.argv or "--loop" in sys.argv:
-        daemon_loop()
-    else:
-        snapshot = run_collection()
-        print(json.dumps(snapshot, indent=2))
+    snapshot = run_collection()
+    print(json.dumps(snapshot, indent=2))
 
 
 if __name__ == "__main__":
