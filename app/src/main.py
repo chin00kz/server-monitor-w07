@@ -192,6 +192,7 @@ DOCKER_CONTROL_STATUS = DOCKER_CONTROL_ROOT / "status.json"
 DOCKER_CONTROL_ACTIONS = {"start", "stop", "restart", "logs"}
 DOCKER_CONTROL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 DOCKER_CONTROL_EXCLUDED = {"server-monitor"}
+DOCKER_CONTROL_LOG_ONLY = {"server-monitor"}
 last_docker_action_time: dict[str, float] = {}
 docker_control_lock = threading.Lock()
 
@@ -202,7 +203,10 @@ class DockerControlRequest(BaseModel):
 
 
 def configured_docker_containers():
-    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "homelab-test")
+    raw = os.environ.get(
+        "DOCKER_CONTROL_CONTAINERS",
+        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,homelab-test",
+    )
     return {
         name.strip()
         for name in raw.split(",")
@@ -302,7 +306,10 @@ def docker_control(body: DockerControlRequest):
         raise HTTPException(400, "invalid container name")
     if action not in DOCKER_CONTROL_ACTIONS:
         raise HTTPException(400, "unsupported Docker action")
-    if container not in configured_docker_containers():
+    if container in DOCKER_CONTROL_LOG_ONLY and action != "logs":
+        raise HTTPException(403, "container is authorized for logs only")
+    if (container not in configured_docker_containers()
+            and container not in DOCKER_CONTROL_LOG_ONLY):
         raise HTTPException(403, "container is not authorized")
 
     now = time.time()

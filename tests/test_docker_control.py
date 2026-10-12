@@ -11,24 +11,54 @@ import docker_control
 class DockerControlTests(unittest.TestCase):
     def test_default_allowlist_is_test_container_only(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(docker_control.configured_containers(), {"homelab-test"})
+            self.assertEqual(
+                docker_control.configured_containers(),
+                {
+                    "imfs-pg-m1",
+                    "imfs-pg-m2",
+                    "imfs-pg-m3",
+                    "imfs-pg-m4",
+                    "imfs-pg-integration",
+                    "homelab-test",
+                },
+            )
 
-    def test_production_and_postgres_containers_are_rejected(self):
-        for name in (
-            "server-monitor",
+    def test_server_monitor_allows_logs_only(self):
+        self.assertEqual(
+            docker_control.validate_request({
+                "request_id": "a" * 32,
+                "container": "server-monitor",
+                "action": "logs",
+            })[2],
+            "logs",
+        )
+        with self.assertRaises(PermissionError):
+            docker_control.validate_request({
+                "request_id": "a" * 32,
+                "container": "server-monitor",
+                "action": "stop",
+            })
+
+    def test_production_containers_are_accepted_when_configured(self):
+        containers = (
             "imfs-pg-m1",
             "imfs-pg-m2",
             "imfs-pg-m3",
             "imfs-pg-m4",
             "imfs-pg-integration",
-        ):
-            with self.subTest(container=name):
-                with self.assertRaises(PermissionError):
-                    docker_control.validate_request({
-                        "request_id": "a" * 32,
-                        "container": name,
-                        "action": "stop",
-                    })
+            "homelab-test",
+        )
+        with patch.dict(os.environ, {"DOCKER_CONTROL_CONTAINERS": ",".join(containers)}):
+            for name in containers:
+                with self.subTest(container=name):
+                    self.assertEqual(
+                        docker_control.validate_request({
+                            "request_id": "a" * 32,
+                            "container": name,
+                            "action": "logs",
+                        })[1],
+                        name,
+                    )
 
     def test_only_fixed_actions_are_accepted_for_test_container(self):
         for action in ("start", "stop", "restart", "logs"):

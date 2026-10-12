@@ -10,7 +10,7 @@ User=chinookz
 SupplementaryGroups=docker
 WorkingDirectory=/home/chinookz/homelab/docker/server-monitor
 Environment=SERVER_MONITOR_DATA=/home/chinookz/homelab/docker/server-monitor/data
-Environment=DOCKER_CONTROL_CONTAINERS=homelab-test
+Environment=DOCKER_CONTROL_CONTAINERS=imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,homelab-test
 ExecStart=/usr/bin/python3 /home/chinookz/homelab/docker/server-monitor/activity/docker_control.py
 TimeoutStartSec=50
 NoNewPrivileges=true

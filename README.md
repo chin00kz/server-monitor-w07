@@ -28,7 +28,7 @@ The dashboard is organized into these working sections:
 - Maintenance-awareness checks for PostgreSQL, SSH, and local sessions.
 - Telegram alert delivery, Telegram control polling, heartbeat monitoring, and alert history.
 - Refresh Now for a fresh application sample plus an acknowledged host collection covering PostgreSQL, Docker, storage, and network checks.
-- Docker Control v1 for the explicitly allowlisted `homelab-test`: start, confirmed stop/restart, and capped read-only logs.
+- Docker Control v1 for the five PostgreSQL containers and `homelab-test`: start, confirmed stop/restart, and capped read-only logs. `server-monitor` is Logs-only.
 - Automatic polling continues independently of manual refreshes.
 
 ## Architecture
@@ -102,7 +102,7 @@ sudo systemctl enable --now server-activity-monitor.path
 
 The existing `server-activity-monitor.service` must run `activity/collect.py`. Keep its existing timer enabled. Do not install the removed daemon service; on-demand collection uses the path unit instead.
 
-For Docker Control v1, install `activity/docker_control.py`, `activity/server-docker-control.service`, and `activity/server-docker-control.path` on the host as described in [activity/DEPLOYMENT.md](activity/DEPLOYMENT.md). The controller service is pinned to `homelab-test` and requires the host account to have Docker-group access. Do not mount the Docker socket into the dashboard container or add `server-monitor` to the allowlist.
+For Docker Control v1, install `activity/docker_control.py`, `activity/server-docker-control.service`, and `activity/server-docker-control.path` on the host as described in [activity/DEPLOYMENT.md](activity/DEPLOYMENT.md). The controller service allowlist contains the five PostgreSQL containers and `homelab-test`; `server-monitor` is enforced as Logs-only. It requires the host account to have Docker-group access. Do not mount the Docker socket into the dashboard container.
 
 Refresh Now performs two authenticated actions: it samples application hardware metrics immediately, then submits a host request. The host collector serializes scheduled and manual runs with a bounded lock, collects live PostgreSQL, Docker, storage, and network data, writes the snapshot atomically, and acknowledges the matching request ID. Network probes are rate-limited during manual refreshes.
 

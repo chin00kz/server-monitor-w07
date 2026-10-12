@@ -23,6 +23,7 @@ LOCK_FILE = CONTROL_ROOT / ".controller.lock"
 DOCKER_BIN = os.environ.get("DOCKER_BIN", "/usr/bin/docker")
 ALLOWED_ACTIONS = {"start", "stop", "restart", "logs"}
 EXCLUDED_CONTAINERS = {"server-monitor"}
+LOG_ONLY_CONTAINERS = {"server-monitor"}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 REQUEST_RE = re.compile(r"^[a-f0-9]{32}$")
 MAX_LOG_LINES = 200
@@ -30,7 +31,10 @@ MAX_LOG_BYTES = 32 * 1024
 
 
 def configured_containers():
-    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "homelab-test")
+    raw = os.environ.get(
+        "DOCKER_CONTROL_CONTAINERS",
+        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,homelab-test",
+    )
     return {
         name.strip()
         for name in raw.split(",")
@@ -117,7 +121,9 @@ def validate_request(request):
         raise ValueError("invalid request ID")
     if not isinstance(container, str) or not NAME_RE.fullmatch(container):
         raise ValueError("invalid container name")
-    if container not in configured_containers():
+    if container in LOG_ONLY_CONTAINERS and action != "logs":
+        raise PermissionError("container is authorized for logs only")
+    if container not in configured_containers() and container not in LOG_ONLY_CONTAINERS:
         raise PermissionError("container is not authorized")
     if action not in ALLOWED_ACTIONS:
         raise ValueError("unsupported Docker action")

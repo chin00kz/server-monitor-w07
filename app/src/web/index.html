@@ -1293,12 +1293,37 @@ function dockerHealthSummary(entries, containers, dockerStatus) {
   return parts.join(" · ");
 }
 
+const postgresContainers = new Set([
+  "imfs-pg-m1",
+  "imfs-pg-m2",
+  "imfs-pg-m3",
+  "imfs-pg-m4",
+  "imfs-pg-integration"
+]);
+const dockerControlContainers = new Set([
+  "imfs-pg-m1",
+  "imfs-pg-m2",
+  "imfs-pg-m3",
+  "imfs-pg-m4",
+  "imfs-pg-integration",
+  "homelab-test"
+]);
+
 const dockerControlInFlight = new Set();
 
 async function requestDockerAction(container, action, buttons, status, state, detail, logPanel, logOutput, closeLogs) {
-  if ((action === "stop" || action === "restart") &&
-      !window.confirm(`${action === "stop" ? "Stop" : "Restart"} ${container}?`)) {
-    return;
+  if (action === "stop" || action === "restart") {
+    const verb = action === "stop" ? "stop" : "restart";
+    const postgresWarning = postgresContainers.has(container)
+      ? `WARNING: This will ${verb} PostgreSQL container "${container}". Existing database connections may be interrupted.`
+      : `${verb[0].toUpperCase()}${verb.slice(1)} container "${container}"?`;
+    if (!window.confirm(postgresWarning)) return;
+    if (postgresContainers.has(container) &&
+        window.prompt(`Type ${container} to confirm this PostgreSQL action:`) !== container) {
+      status.className = "docker-control-status error";
+      status.textContent = "Confirmation did not match; no action sent";
+      return;
+    }
   }
   if (dockerControlInFlight.has(container)) return;
 
@@ -1887,13 +1912,15 @@ async function pollReliability(schedule = true){
         const logOutput = document.createElement("pre");
         logPanel.append(logOutput);
         const buttons = [];
-        const authorized = name === "homelab-test";
+        const authorized = dockerControlContainers.has(name);
+        const logsAuthorized = authorized || name === "server-monitor";
         const addControl = (action, enabled) => {
           const button = document.createElement("button");
           button.type = "button";
           button.textContent = action[0].toUpperCase() + action.slice(1);
-          button.disabled = !authorized || !enabled;
-          button.title = authorized ? `${action} ${name}` : "Container control is not enabled for this container";
+          const allowed = action === "logs" ? logsAuthorized : authorized;
+          button.disabled = !allowed || !enabled;
+          button.title = allowed ? `${action} ${name}` : "Container control is not enabled for this container";
           button.addEventListener("click", () => requestDockerAction(
             name, action, buttons, controlStatus, status, detail, logPanel, logOutput, closeLogs
           ));
