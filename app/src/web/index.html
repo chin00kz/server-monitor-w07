@@ -1084,33 +1084,55 @@ canvas { opacity: .92; }
   </p>
 </section>
 
+<section id="postgres-health-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">DATABASE SERVICES</div>
+      <h2>PostgreSQL</h2>
+      <p>Connection health and database activity</p>
+    </div>
+  </div>
+  <div style="padding:16px 0">
+    <p id="postgres-health-status">Loading database health...</p>
+    <div id="postgres-health-list"
+         style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
+    </div>
+  </div>
+</section>
+
 <section id="reliability-section">
   <div class="section-heading">
     <div>
-      <div class="eyebrow">SERVER HEALTH</div>
-      <h2>Server Reliability</h2>
-      <p>Network routing, disk capacity and Docker container health</p>
+      <div class="eyebrow" id="reliability-eyebrow">INFRASTRUCTURE HEALTH</div>
+      <h2 id="reliability-title">Infrastructure Health</h2>
+      <p id="reliability-description">Live infrastructure checks</p>
     </div>
   </div>
-  <div class="maintenance-metrics network-status-grid">
+  <div id="rel-network-panel" class="maintenance-metrics network-status-grid">
     <div>
       <span>Network failover</span>
       <strong id="rel-network">Loading…</strong>
       <span id="rel-network-detail">Checking routing and connectivity…</span>
     </div>
+  </div>
+  <div id="rel-storage-panel" class="maintenance-metrics network-status-grid">
     <div>
       <span>Disk storage · Root filesystem</span>
       <strong id="rel-storage">Loading…</strong>
       <span id="rel-storage-detail">Checking available space…</span>
     </div>
+  </div>
+  <div id="rel-docker-panel">
+    <div class="maintenance-metrics network-status-grid">
     <div>
       <span>Docker containers</span>
       <strong id="rel-docker">Loading…</strong>
       <span id="rel-docker-detail">Checking container health…</span>
     </div>
-  </div>
-  <div class="maintenance-metrics" id="rel-container-list">
-    <div>Container details loading…</div>
+    </div>
+    <div class="maintenance-metrics" id="rel-container-list">
+      <div>Container details loading…</div>
+    </div>
   </div>
   <p class="maintenance-note" id="rel-note">
     Waiting for reliability readings.
@@ -1127,18 +1149,6 @@ canvas { opacity: .92; }
   </div>
 </section>
 
-
-<section id="postgres-health-section">
-  <div class="section-heading">
-    <h2>PostgreSQL Health</h2>
-  </div>
-  <div style="padding:16px 0">
-    <p id="postgres-health-status">Loading database health...</p>
-    <div id="postgres-health-list"
-         style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
-    </div>
-  </div>
-</section>
 
 <section id="charts-section">
   <div class="section-heading">
@@ -1331,7 +1341,7 @@ function render(){
     health: "Performance",
     network: "Network",
     storage: "Storage",
-    databases: "PostgreSQL",
+    databases: "Docker",
     alerts: "Events"
   };
   if (!PAGES.includes(page)) page = "overview";
@@ -1347,16 +1357,32 @@ function render(){
 
   const chartPages = ["overview", "health", "network", "storage"];
   const isCharts = chartPages.includes(page);
+  const infrastructurePage = ["network", "storage", "databases"].includes(page);
 
   show("overview-section", page === "overview");
   show("overview-summary", page === "overview", "grid");
   show("maintenance-section", page === "overview");
-  show("reliability-section", page === "health");
+  show("reliability-section", infrastructurePage);
+  show("rel-network-panel", page === "network", "grid");
+  show("rel-storage-panel", page === "storage", "grid");
+  show("rel-docker-panel", page === "databases");
+  show("rel-note", page === "network");
   show("network-status-section", page === "network");
   show("postgres-health-section", page === "databases");
   show("alert-history-section", page === "alerts");
   show("charts-section", isCharts);
   show("stats", page === "overview", "grid");
+
+  const infrastructureCopy = {
+    network: ["NETWORK ROUTING", "Network Reliability", "Preferred route, failover state and backup reachability"],
+    storage: ["FILESYSTEM CAPACITY", "Storage Capacity", "Root filesystem usage and available capacity"],
+    databases: ["CONTAINER RUNTIME", "Container Health", "Monitored Docker services and runtime health"]
+  }[page];
+  if (infrastructureCopy) {
+    $("#reliability-eyebrow").textContent = infrastructureCopy[0];
+    $("#reliability-title").textContent = infrastructureCopy[1];
+    $("#reliability-description").textContent = infrastructureCopy[2];
+  }
 
   const range = $("#range");
   range.style.display = isCharts ? "" : "none";
@@ -1626,7 +1652,18 @@ async function pollReliability(schedule = true){
     }
 
     const containers = data.docker?.containers || {};
-    const entries = Object.entries(containers);
+    const monitoredContainers = [
+      "server-monitor",
+      "imfs-pg-m1",
+      "imfs-pg-m2",
+      "imfs-pg-m3",
+      "imfs-pg-m4",
+      "imfs-pg-integration"
+    ];
+    const entries = monitoredContainers.map(name => [
+      name,
+      containers[name] || {state: "unknown", health: "unknown", restarts: null}
+    ]);
     const healthy = entries.filter(([_, item]) =>
       item.state === "running" && item.health === "healthy"
     ).length;
@@ -1634,7 +1671,7 @@ async function pollReliability(schedule = true){
     set("rel-docker",
       data.docker?.status === "ok"
         ? `${healthy}/${entries.length} healthy`
-        : "Unknown"
+        : `${healthy}/${entries.length} observed`
     );
     set("rel-docker-detail", `${entries.length} monitored containers`);
     set("ov-network",
