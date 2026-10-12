@@ -676,6 +676,30 @@ button:hover { border-color: var(--acc); }
 }
 .network-status-grid span:last-child { overflow-wrap: anywhere; }
 
+.docker-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.docker-health-badge::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+.docker-health-healthy { color: var(--green); background: rgba(92, 201, 138, .08); }
+.docker-health-neutral { color: #9aa7b3; background: rgba(154, 167, 179, .08); }
+.docker-health-warning { color: var(--amber); background: rgba(229, 172, 82, .09); }
+.docker-health-danger { color: var(--red); background: rgba(225, 107, 103, .09); }
+
 #reliability-section #rel-container-list {
   margin-top: 12px;
 }
@@ -1228,6 +1252,47 @@ const fmtUp=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.fl
 const fmtTime=(t,h)=>{const d=new Date(t*1000),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   return h<=24?hm:d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+hm};
 
+function dockerHealthState(item) {
+  const state = String(item?.state || "unknown").toLowerCase();
+  const health = String(item?.health || "none").toLowerCase();
+  if (state === "running" && health === "healthy") {
+    return {label: "Running · Healthy", level: "healthy"};
+  }
+  if (state === "running" && health === "unhealthy") {
+    return {label: "Running · Unhealthy", level: "danger"};
+  }
+  if (state === "running" && health === "starting") {
+    return {label: "Running · Starting", level: "warning"};
+  }
+  if (state === "running" && ["none", "unknown", ""].includes(health)) {
+    return {label: "Running · No check", level: "neutral"};
+  }
+  if (["exited", "stopped", "dead"].includes(state)) {
+    return {label: `Stopped · ${state}`, level: "danger"};
+  }
+  if (["starting", "created", "restarting"].includes(state)) {
+    return {label: `${state[0].toUpperCase()}${state.slice(1)} · Pending`, level: "warning"};
+  }
+  return {label: `${state[0].toUpperCase()}${state.slice(1)} · Unknown`, level: "neutral"};
+}
+
+function dockerHealthSummary(entries, containers, dockerStatus) {
+  const classified = entries.map(([name, item]) => ({name, ...dockerHealthState(item)}));
+  const healthy = classified.filter(item => item.level === "healthy").length;
+  const noCheck = classified.filter(item => item.level === "neutral" &&
+    item.label === "Running · No check").length;
+  const attention = classified.filter(item =>
+    item.level === "danger" || item.level === "warning"
+  ).length;
+  const observed = entries.filter(([name]) => containers[name]).length;
+  const parts = [];
+  if (dockerStatus === "ok") parts.push(`${healthy}/${entries.length} healthy`);
+  else parts.push(`${observed}/${entries.length} observed`);
+  if (noCheck) parts.push(`${noCheck} no check`);
+  if (attention) parts.push(`${attention} attention`);
+  return parts.join(" · ");
+}
+
 const dockerControlInFlight = new Set();
 
 async function requestDockerAction(container, action, buttons, status, state, detail, logPanel, logOutput, closeLogs) {
@@ -1261,8 +1326,12 @@ async function requestDockerAction(container, action, buttons, status, state, de
       logPanel.style.display = "block";
       closeLogs.style.display = "inline-block";
     }
-    if (result.state) state.textContent = `${result.state} · ${result.health || "unknown"}`;
-    if (result.state) detail.textContent = "Container status updated · Restarts will appear on the next health poll";
+    if (result.state) {
+      const nextHealthState = dockerHealthState(result);
+      state.className = `docker-health-badge docker-health-${nextHealthState.level}`;
+      state.textContent = nextHealthState.label;
+      detail.textContent = "Container status updated · Restarts will appear on the next health poll";
+    }
     status.className = "docker-control-status ok";
     status.textContent = result.status === "pending"
       ? `${action} queued; waiting for host controller`
@@ -1769,15 +1838,9 @@ async function pollReliability(schedule = true){
       name,
       containers[name] || {state: "unknown", health: "unknown", restarts: null}
     ]);
-    const healthy = entries.filter(([_, item]) =>
-      item.state === "running" && item.health === "healthy"
-    ).length;
-
-    set("rel-docker",
-      data.docker?.status === "ok"
-        ? `${healthy}/${entries.length} healthy`
-        : `${healthy}/${entries.length} observed`
-    );
+    const dockerStatus = data.docker?.status;
+    const dockerSummary = dockerHealthSummary(entries, containers, dockerStatus);
+    set("rel-docker", dockerSummary);
     set("rel-docker-detail", `${entries.length} monitored containers`);
     set("ov-network",
       preferred === "wlp2s0" ? wifiName :
@@ -1787,7 +1850,7 @@ async function pollReliability(schedule = true){
       `${wifiName} ${wifiStatus} · Dialog Ethernet ${ethernetStatus}`
     );
     set("ov-docker",
-      data.docker?.status === "ok" ? `${healthy}/${entries.length} healthy` : "Unknown"
+      dockerSummary
     );
     set("ov-docker-detail", `${entries.length} monitored containers`);
 
@@ -1809,7 +1872,9 @@ async function pollReliability(schedule = true){
         const detail = document.createElement("span");
 
         title.textContent = name;
-        status.textContent = `${item.state} · ${item.health}`;
+        const healthState = dockerHealthState(item);
+        status.className = `docker-health-badge docker-health-${healthState.level}`;
+        status.textContent = healthState.label;
         detail.textContent =
           `Restarts: ${item.restarts === null ? "Unknown" : item.restarts}`;
 
