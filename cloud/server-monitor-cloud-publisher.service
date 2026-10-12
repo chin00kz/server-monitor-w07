@@ -14,5 +14,4 @@ ProtectSystem=full
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-ReadOnlyPaths=/home/chinookz/homelab/docker/server-monitor/data
 TimeoutStartSec=20

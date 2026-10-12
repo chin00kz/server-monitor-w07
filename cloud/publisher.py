@@ -7,6 +7,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 NODE_ID = os.environ.get("CLOUD_NODE_ID", "workstation-07-5d")
@@ -35,7 +36,7 @@ def read_json(path):
 def latest_metric(key):
     if not DB_PATH.exists():
         return None
-    database = sqlite3.connect(DB_PATH, timeout=3)
+    database = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=3)
     try:
         row = database.execute(
             "SELECT v FROM s WHERE key = ? ORDER BY ts DESC LIMIT 1", (key,)
@@ -114,7 +115,9 @@ def build_payload(snapshot):
         "node": {
             "id": NODE_ID,
             "uptime_seconds": uptime_seconds(),
-            "observed_at": snapshot.get("timestamp"),
+            "observed_at": datetime.fromtimestamp(
+                float(snapshot["timestamp"]), timezone.utc
+            ).isoformat(),
         },
         "network": {
             "active_route": route,

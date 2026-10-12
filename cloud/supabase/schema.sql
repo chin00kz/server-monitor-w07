@@ -26,7 +26,7 @@ alter table public.node_status enable row level security;
 drop policy if exists node_status_team_read on public.node_status;
 revoke all on public.node_status from anon;
 revoke all on public.node_status from authenticated;
-grant insert, update on public.node_status to service_role;
+grant select, insert, update on public.node_status to service_role;
 
 create or replace function public.read_node_status(requested_node_id text)
 returns table (node_id text, observed_at timestamptz, received_at timestamptz, payload jsonb)

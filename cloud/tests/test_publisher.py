@@ -50,6 +50,7 @@ class CloudPublisherTests(unittest.TestCase):
             ), patch.object(publisher, "PROC_ROOT", proc_path):
                 payload = publisher.build_payload(publisher.read_json(snapshot_path))
             self.assertEqual(payload["network"]["active_route"], "starlink-mini")
+            self.assertEqual(payload["node"]["observed_at"], "1970-01-01T00:01:40+00:00")
             self.assertEqual(payload["resources"]["cpu_percent"], 12.5)
             self.assertEqual(payload["resources"]["disk_percent"], 22)
             self.assertEqual(payload["battery"]["activity"], "unknown")
