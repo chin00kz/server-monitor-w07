@@ -4,7 +4,7 @@ services:
   homelab-test:
     image: alpine:3.20
     container_name: homelab-test
-    command: ["sh", "-c", "i=0; while true; do i=$((i + 1)); echo homelab-test-log-$i; sleep 5; done"]
+    command: ["sh", "-c", "i=0; while true; do i=$$((i + 1)); echo homelab-test-log-$$i; sleep 5; done"]
     read_only: true
     tmpfs:
       - /tmp

@@ -216,7 +216,7 @@ def write_control_json(path: Path, payload: dict):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n")
     try:
-        os.chmod(temporary, 0o664)
+        os.chmod(temporary, 0o660)
     except OSError:
         pass
     os.replace(temporary, path)

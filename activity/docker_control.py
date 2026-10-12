@@ -45,7 +45,7 @@ def atomic_write(path, payload):
         with os.fdopen(fd, "w", encoding="utf-8") as output:
             json.dump(payload, output, separators=(",", ":"))
             output.write("\n")
-        os.chmod(temporary, 0o664)
+        os.chmod(temporary, 0o660)
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -97,13 +97,14 @@ def audit(request, outcome, detail=""):
     }
     if detail:
         entry["detail"] = redact(detail)[:1000]
-    AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with AUDIT_FILE.open("a", encoding="utf-8") as output:
-        output.write(json.dumps(entry, separators=(",", ":")) + "\n")
     try:
-        os.chmod(AUDIT_FILE, 0o664)
+        AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with AUDIT_FILE.open("a", encoding="utf-8") as output:
+            output.write(json.dumps(entry, separators=(",", ":")) + "\n")
+        os.chmod(AUDIT_FILE, 0o660)
     except OSError:
-        pass
+        return False
+    return True
 
 
 def validate_request(request):
@@ -190,7 +191,7 @@ def main():
     finally:
         try:
             REQUEST_FILE.unlink()
-        except FileNotFoundError:
+        except OSError:
             pass
     return 0
 
