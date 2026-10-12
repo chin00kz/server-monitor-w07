@@ -468,6 +468,55 @@ button:hover { border-color: var(--acc); }
   box-shadow: 0 0 8px #72c6a344;
 }
 
+.refresh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, opacity .15s;
+}
+.refresh-btn:hover:not(:disabled) {
+  background: #20272f;
+  border-color: var(--acc);
+}
+.refresh-btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.refresh-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--mute);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  animation: spin .75s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.refresh-status {
+  color: var(--mute);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.refresh-status.err {
+  color: var(--red);
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -731,7 +780,13 @@ canvas { max-width: 100%; }
       <h2>System Overview</h2>
       <p>Live hardware health and resource utilization</p>
     </div>
-    <span class="live-indicator"><span class="live-dot"></span> Live metrics</span>
+    <div class="refresh-control">
+      <span class="live-indicator"><span class="live-dot"></span> Live metrics</span>
+      <button id="refresh-btn" class="refresh-btn" title="Refresh all monitored checks and data">
+        <span id="refresh-btn-icon">↻</span> Refresh Now
+      </button>
+      <span id="refresh-status" class="refresh-status"></span>
+    </div>
   </div>
   <div id="stats" class="stats"></div>
 
@@ -1115,7 +1170,7 @@ function render(){
   updateStats();
   charts.forEach(c => c.load(hours()));
 }
-async function pollActivity(){
+async function pollActivity(schedule = true){
   const statusText = $("#maintenance-status-text");
   const badge = $("#maintenance-badge");
   const count = $("#db-activity-count");
@@ -1293,14 +1348,15 @@ async function pollActivity(){
     freshness.textContent = "Unavailable";
     note.textContent =
       "The activity API failed or its data is stale. Do not use this reading to decide whether maintenance is safe.";
+    throw e;
+  } finally {
+    if (schedule) setTimeout(() => pollActivity(true), 10000);
   }
-
-  setTimeout(pollActivity, 10000);
 }
 
 
 
-async function pollReliability(){
+async function pollReliability(schedule = true){
   const set = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
@@ -1422,9 +1478,10 @@ async function pollReliability(){
     );
   } catch (error) {
     unknown();
+    throw error;
+  } finally {
+    if (schedule) setTimeout(() => pollReliability(true), 10000);
   }
-
-  setTimeout(pollReliability, 10000);
 }
 
 
@@ -1542,6 +1599,7 @@ async function pollPostgresHealth(){
   } catch (error) {
     status.textContent = "PostgreSQL health temporarily unavailable.";
     list.replaceChildren();
+    throw error;
   }
 }
 
@@ -1627,12 +1685,13 @@ async function pollAlertHistory(){
     }
   } catch (error) {
     status.textContent = "Alert history temporarily unavailable.";
+    throw error;
   }
 }
 
 setInterval(pollAlertHistory, 30000);
 
-async function pollNetworkUsage(){
+async function pollNetworkUsage(schedule = true){
   const formatBytes = value => {
     if (!Number.isFinite(value) || value < 0) return "Unavailable";
     if (value < 1024) return `${Math.round(value)} B`;
@@ -1683,21 +1742,126 @@ async function pollNetworkUsage(){
       const el = document.getElementById(`net-${name}-usage`);
       if (el) el.textContent = "Recorded today: Unavailable";
     }
+    throw error;
+  } finally {
+    if (schedule) setTimeout(() => pollNetworkUsage(true), 60000);
   }
-
-  setTimeout(pollNetworkUsage, 60000);
 }
 
-async function poll(){
+async function poll(schedule = true){
   try{
     const r=await fetch("/api/now");
     if(r.status===401){location="/login";return}
     const d=await r.json();m=d.m||{};info=d.info||{};
     updateNetworkTraffic();
     if(d.ts&&!built){built=true;render()}else updateStats();
-  }catch(e){}
-  setTimeout(poll,built?10000:3000);
+  }catch(e){
+    if (!schedule) throw e;
+  }finally{
+    if(schedule) setTimeout(() => poll(true), built?10000:3000);
+  }
 }
+
+let refreshing = false;
+
+async function triggerRefresh(){
+  if (refreshing) return;
+  refreshing = true;
+
+  const btn = document.getElementById("refresh-btn");
+  const icon = document.getElementById("refresh-btn-icon");
+  const status = document.getElementById("refresh-status");
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.innerHTML = '<span class="refresh-spinner"></span>';
+  if (status) {
+    status.className = "refresh-status";
+    status.textContent = "Refreshing…";
+  }
+
+  let hwOk = false;
+  let hwError = null;
+
+  // Step 1: Trigger fresh live hardware/OS metrics sample FIRST.
+  // Charts, SQLite queries, and live cards depend on this new sample being committed.
+  try {
+    const res = await fetch("/api/refresh", {method: "POST"});
+    if (res.status === 401) { location = "/login"; return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    m = d.m || {};
+    info = d.info || {};
+    updateNetworkTraffic();
+    if (d.ts && !built) { built = true; render(); } else { updateStats(); }
+    hwOk = true;
+  } catch (err) {
+    hwError = err;
+  }
+
+  // Step 2: Request fresh host collection (PostgreSQL, Docker, network, storage).
+  // Await completion signal from host collector daemon if active.
+  let hostRefreshed = false;
+  try {
+    const hRes = await fetch("/api/refresh/host", {method: "POST"});
+    if (hRes.ok) {
+      const hData = await hRes.json();
+      if (hData.status === "completed") hostRefreshed = true;
+    }
+  } catch (e) {}
+
+  // Step 3: Now refresh dependent views (charts & usage from SQLite) and host snapshot views.
+  const checkResults = await Promise.allSettled([
+    Promise.allSettled(charts.map(c => c.load(hours()))),
+    pollActivity(false),
+    pollReliability(false),
+    pollPostgresHealth(),
+    pollAlertHistory(),
+    pollNetworkUsage(false)
+  ]);
+
+  const failedChecks = checkResults.filter(r => r.status === "rejected");
+  const now = new Date();
+  const timeStr = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Colombo",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(now);
+
+  // Inspect freshness of host snapshot from DOM
+  const lastActEl = document.getElementById("last-activity");
+  const lastActText = lastActEl ? lastActEl.textContent : "";
+  const hostAgeMatch = lastActText.match(/(\d+)s ago/);
+  const hostAgeSec = hostAgeMatch ? parseInt(hostAgeMatch[1], 10) : null;
+  const hostIsStale = hostAgeSec !== null && hostAgeSec > 60;
+
+  if (status) {
+    if (!hwOk) {
+      status.className = "refresh-status err";
+      status.textContent = `Hardware refresh failed (${hwError ? hwError.message : "error"})`;
+    } else if (failedChecks.length > 0) {
+      status.className = "refresh-status err";
+      status.textContent = `Live metrics fresh at ${timeStr} · ${failedChecks.length} host check${failedChecks.length === 1 ? "" : "s"} failed`;
+    } else if (hostRefreshed || (hostAgeSec !== null && hostAgeSec <= 5)) {
+      status.className = "refresh-status";
+      status.textContent = `All checks fresh at ${timeStr}`;
+    } else if (hostIsStale) {
+      status.className = "refresh-status";
+      status.textContent = `Live metrics fresh at ${timeStr} · Host snapshot ${hostAgeSec}s old`;
+    } else {
+      status.className = "refresh-status";
+      status.textContent = `Live metrics fresh at ${timeStr} · Host snapshot ${hostAgeSec !== null ? hostAgeSec + "s old" : "cached"}`;
+    }
+  }
+
+  if (btn) btn.disabled = false;
+  if (icon) icon.textContent = "↻";
+  refreshing = false;
+}
+
+const refreshBtnEl = document.getElementById("refresh-btn");
+if (refreshBtnEl) refreshBtnEl.onclick = triggerRefresh;
 
 pollReliability();
 pollAlertHistory();

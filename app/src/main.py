@@ -31,18 +31,42 @@ sessions: dict[str, float] = {}
 fails: dict[str, list[float]] = {}
 
 
+collector = Collector()
+collector_lock = threading.Lock()
+last_sample_time = 0.0
+
+
+def sample_metrics(slow: bool = True):
+    """Sample host metrics, persist to SQLite, and update latest state thread-safely."""
+    global last_sample_time
+    with collector_lock:
+        now = time.time()
+        # Avoid dividing by near-zero dt if triggered faster than 1 second
+        if now - last_sample_time < 1.0 and latest["ts"] is not None:
+            return latest["ts"], latest["m"], latest["info"]
+        conn = store.connect()
+        try:
+            ts, metrics, info = collector.sample(slow=slow)
+            store.insert(conn, ts, metrics)
+            latest.update(ts=ts, m={**latest["m"], **metrics}, info=info)
+            last_sample_time = now
+            return ts, metrics, info
+        finally:
+            conn.close()
+
+
 def collector_loop():
-    col = Collector()
-    conn = store.connect()
     n, last_rollup = 0, 0.0
     while True:
         started = time.time()
         try:
-            ts, metrics, info = col.sample(slow=(n % 2 == 0))
-            store.insert(conn, ts, metrics)
-            latest.update(ts=ts, m={**latest["m"], **metrics}, info=info)
+            sample_metrics(slow=(n % 2 == 0))
             if started - last_rollup > 3600:
-                store.rollup(conn)
+                conn = store.connect()
+                try:
+                    store.rollup(conn)
+                finally:
+                    conn.close()
                 last_rollup = started
         except Exception as e:  # never stop collecting
             print("collector error:", repr(e), flush=True)
@@ -147,6 +171,59 @@ def health():  # unauthenticated on purpose (Docker healthcheck): booleans only
 @app.get("/api/now", dependencies=[Depends(require_login)])
 def now():
     return latest
+
+
+HOST_TRIGGER_FILE = Path("/data/activity/refresh.request")
+HOST_STATUS_FILE = Path("/data/activity/refresh.status")
+last_host_request_time = 0.0
+host_request_lock = threading.Lock()
+
+
+@app.post("/api/refresh", dependencies=[Depends(require_login)])
+def refresh_now():
+    """Trigger an immediate sample of live hardware/OS metrics and return fresh snapshot."""
+    try:
+        sample_metrics(slow=True)
+    except Exception as e:
+        raise HTTPException(500, f"Refresh failed: {e}")
+    return latest
+
+
+@app.post("/api/refresh/host", dependencies=[Depends(require_login)])
+def refresh_host():
+    """Request on-demand collection from host activity daemon and await completion."""
+    global last_host_request_time
+    with host_request_lock:
+        now = time.time()
+        # Rate limit host collection requests to once per 5 seconds
+        if now - last_host_request_time < 5.0:
+            return {"status": "rate_limited", "message": "Host refresh was requested recently"}
+        last_host_request_time = now
+
+        req_id = secrets.token_hex(8)
+        HOST_TRIGGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_trigger = HOST_TRIGGER_FILE.with_suffix(".tmp")
+        tmp_trigger.write_text(json.dumps({"request_id": req_id, "timestamp": now}))
+        os.replace(tmp_trigger, HOST_TRIGGER_FILE)
+
+    # Wait up to 10 seconds for host daemon to acknowledge completion
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        time.sleep(0.3)
+        if HOST_STATUS_FILE.exists():
+            try:
+                st = json.loads(HOST_STATUS_FILE.read_text())
+                if st.get("request_id") == req_id and st.get("status") == "completed":
+                    return {
+                        "status": "completed",
+                        "request_id": req_id,
+                        "timestamp": st.get("timestamp"),
+                        "duration_seconds": st.get("duration_seconds"),
+                    }
+            except (OSError, ValueError):
+                pass
+
+    return {"status": "pending", "request_id": req_id, "message": "Host collection in progress"}
 
 
 

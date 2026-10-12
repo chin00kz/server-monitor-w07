@@ -358,38 +358,125 @@ def collect_network():
     return network
 
 
+LOCK_FILE = ROOT / "data/activity/.collect.lock"
+TRIGGER_FILE = ROOT / "data/activity/refresh.request"
+STATUS_FILE = ROOT / "data/activity/refresh.status"
+
+
+def run_collection(request_id=None):
+    """Run full host collection protected by an exclusive file lock."""
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOCK_FILE.open("w") as lock_fd:
+        try:
+            import fcntl
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (ImportError, OSError):
+            pass  # fcntl unavailable on Windows; proceed
+
+        started = time.time()
+        try:
+            snapshot = {
+                "timestamp": int(time.time()),
+                "request_id": request_id,
+                "databases": {
+                    name: collect_database(name)
+                    for name in DATABASES
+                },
+                "sessions": collect_sessions(),
+                "network": collect_network(),
+                "docker": collect_docker(),
+                "storage": collect_storage(),
+            }
+            snapshot["failover"] = collect_failover(snapshot["network"])
+
+            OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(
+                prefix=".activity-",
+                dir=OUTPUT.parent,
+            )
+            try:
+                with os.fdopen(fd, "w") as file:
+                    json.dump(snapshot, file, separators=(",", ":"))
+                    file.write("\n")
+                try:
+                    os.chmod(temporary, 0o640)
+                except OSError:
+                    pass
+                os.replace(temporary, OUTPUT)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+
+            # Write status acknowledgment if this was triggered by a request
+            if request_id:
+                STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+                temp_status = STATUS_FILE.with_suffix(".tmp")
+                status_payload = {
+                    "request_id": request_id,
+                    "status": "completed",
+                    "timestamp": snapshot["timestamp"],
+                    "duration_seconds": round(time.time() - started, 2),
+                }
+                temp_status.write_text(json.dumps(status_payload) + "\n")
+                os.replace(temp_status, STATUS_FILE)
+
+            return snapshot
+        finally:
+            try:
+                import fcntl
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except (ImportError, OSError):
+                pass
+
+
+def daemon_loop(interval=15):
+    """Continuously poll for on-demand requests and run periodic collection."""
+    print(f"Host activity collector daemon started (interval: {interval}s)...", flush=True)
+    last_scheduled = 0.0
+
+    while True:
+        try:
+            now = time.time()
+            triggered_id = None
+
+            if TRIGGER_FILE.exists():
+                try:
+                    data = json.loads(TRIGGER_FILE.read_text())
+                    req_id = data.get("request_id")
+                    req_time = data.get("timestamp", 0)
+                    # Ignore requests older than 60 seconds
+                    if now - req_time < 60:
+                        triggered_id = req_id
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    try:
+                        TRIGGER_FILE.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
+            if triggered_id:
+                print(f"Executing on-demand host collection for request: {triggered_id}", flush=True)
+                run_collection(request_id=triggered_id)
+                last_scheduled = time.time()
+            elif now - last_scheduled >= interval:
+                run_collection()
+                last_scheduled = time.time()
+
+        except Exception as exc:
+            print(f"Collector loop error: {repr(exc)}", flush=True)
+
+        time.sleep(1.0)
+
+
 def main():
-    snapshot = {
-        "timestamp": int(time.time()),
-        "databases": {
-            name: collect_database(name)
-            for name in DATABASES
-        },
-        "sessions": collect_sessions(),
-        "network": collect_network(),
-        "docker": collect_docker(),
-        "storage": collect_storage(),
-    }
+    import sys
+    if "--daemon" in sys.argv or "--loop" in sys.argv:
+        daemon_loop()
+    else:
+        snapshot = run_collection()
+        print(json.dumps(snapshot, indent=2))
 
-    snapshot["failover"] = collect_failover(snapshot["network"])
-
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-
-    fd, temporary = tempfile.mkstemp(
-        prefix=".activity-",
-        dir=OUTPUT.parent,
-    )
-    try:
-        with os.fdopen(fd, "w") as file:
-            json.dump(snapshot, file, separators=(",", ":"))
-            file.write("\n")
-        os.chmod(temporary, 0o640)
-        os.replace(temporary, OUTPUT)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-    print(json.dumps(snapshot, indent=2))
 
 if __name__ == "__main__":
     main()
