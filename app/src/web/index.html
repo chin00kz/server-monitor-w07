@@ -762,17 +762,212 @@ canvas { max-width: 100%; }
   .stats, #overview-summary { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* Industrial console shell */
+:root {
+  --bg: #080b10;
+  --panel: #10161e;
+  --panel-raised: #151d27;
+  --panel-deep: #0c1118;
+  --line: #273544;
+  --line-bright: #3a4b5d;
+  --text: #e8edf2;
+  --mute: #8292a3;
+  --soft: #aebbc7;
+  --acc: #f28c28;
+  --acc-soft: #ffb45e;
+  --green: #5cc98a;
+  --amber: #e5ac52;
+  --red: #e16b67;
+  --blue: #79a9c8;
+}
+
+html { background: var(--bg); }
+body {
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image: linear-gradient(rgba(71, 91, 108, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(71, 91, 108, .035) 1px, transparent 1px);
+  background-size: 32px 32px;
+  color: var(--text);
+  font-family: "Segoe UI", Ubuntu, sans-serif;
+  letter-spacing: .01em;
+}
+.app-shell { display: flex; min-height: 100vh; }
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex;
+  width: 248px; flex-direction: column; padding: 23px 15px 16px;
+  background: rgba(11, 16, 22, .98); border-right: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 0 11px 23px; }
+.brand-mark {
+  display: grid; width: 31px; height: 31px; place-items: center;
+  background: var(--acc); color: #1b1209; font-weight: 900; font-size: 17px;
+  clip-path: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%);
+}
+.brand-name { font-size: .8rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.brand-sub { margin-top: 2px; color: var(--mute); font-size: .66rem; letter-spacing: .11em; text-transform: uppercase; }
+.side-label { padding: 11px 11px 7px; color: #617181; font-size: .64rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+#nav { display: grid; gap: 3px; }
+#nav a {
+  display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 9px 11px;
+  border: 1px solid transparent; border-radius: 3px; color: var(--mute); font-size: .84rem;
+}
+#nav a::before { width: 5px; height: 5px; border: 1px solid #607487; content: ""; transform: rotate(45deg); }
+#nav a:hover { background: #18212b; border-color: var(--line); color: var(--text); }
+#nav a.on { background: rgba(242, 140, 40, .1); border-color: rgba(242, 140, 40, .34); color: var(--acc-soft); }
+#nav a.on::before { background: var(--acc); border-color: var(--acc); }
+.side-status { margin-top: auto; padding: 14px 12px; border: 1px solid var(--line); background: var(--panel-deep); }
+.side-status-title { color: var(--mute); font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; }
+.side-status-row { display: flex; justify-content: space-between; gap: 10px; margin-top: 9px; font-size: .76rem; }
+.side-status-row span { color: var(--mute); }
+.side-status-row strong { color: var(--green); font-weight: 600; }
+.sidebar-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 15px 2px 0; }
+.sidebar-footer small { color: #5e6c79; font-size: .65rem; }
+.sidebar-footer button { padding: 5px 7px; border: 0; color: var(--mute); font-size: .72rem; }
+.sidebar-footer button:hover { color: var(--text); }
+.workspace { width: calc(100% - 248px); margin-left: 248px; min-width: 0; }
+header.topbar {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 24px;
+  min-height: 79px; padding: 15px clamp(20px, 3vw, 42px); background: rgba(8, 11, 16, .94);
+  border-bottom: 1px solid var(--line); backdrop-filter: blur(12px);
+}
+.topbar-title { min-width: 220px; flex: 1; }
+.topbar-kicker { color: var(--acc); font-size: .65rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+header.topbar h1 { margin: 2px 0 0; font-size: 1.13rem; font-weight: 650; letter-spacing: .01em; }
+.topbar-meta { display: flex; align-items: center; gap: 18px; }
+.telemetry { display: grid; gap: 1px; min-width: 77px; }
+.telemetry-label { color: #677787; font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
+.telemetry-value { color: var(--soft); font-family: Consolas, monospace; font-size: .79rem; font-variant-numeric: tabular-nums; }
+.health-state { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: .78rem; white-space: nowrap; }
+.health-state::before { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(92, 201, 138, .12); content: ""; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+header.topbar #range, header.topbar #out, .refresh-btn {
+  min-height: 34px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--panel-raised); color: var(--soft); font-size: .75rem;
+}
+header.topbar #range:focus, header.topbar #out:focus, .refresh-btn:focus { outline: 2px solid rgba(242, 140, 40, .55); outline-offset: 2px; }
+.refresh-btn { display: inline-flex; align-items: center; gap: 8px; border-color: rgba(242, 140, 40, .55); background: var(--acc); color: #221509; font-weight: 750; }
+.refresh-btn:hover { background: var(--acc-soft); color: #221509; }
+.refresh-btn:disabled { cursor: wait; opacity: .7; }
+#refresh-btn-icon { font-size: 1.08rem; line-height: 1; }
+#refresh-status { position: absolute; right: 42px; top: 83px; max-width: 420px; color: var(--green); font-size: .72rem; }
+.content { max-width: 1640px; margin: 0 auto; padding: 28px clamp(20px, 3vw, 42px) 48px; }
+.section-heading { align-items: flex-end; padding: 0 0 17px; border-bottom: 1px solid var(--line); }
+.section-heading h2 { margin: 4px 0 3px; font-size: 1.32rem; font-weight: 650; letter-spacing: .005em; }
+.section-heading p { color: var(--mute); }
+.eyebrow { color: var(--acc); font-size: .63rem; letter-spacing: .16em; }
+.live-indicator { color: var(--green); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+.live-dot { width: 6px; height: 6px; box-shadow: 0 0 0 3px rgba(92, 201, 138, .13); }
+.stats { gap: 10px; padding: 18px 0 0; grid-template-columns: repeat(6, minmax(135px, 1fr)); }
+.card, .summary-card, .maintenance-card, .maintenance-metrics > div {
+  background: rgba(16, 22, 30, .94); border: 1px solid var(--line); border-radius: 3px; box-shadow: none;
+}
+.card { padding: 17px; }
+.stats .card { min-height: 124px; position: relative; overflow: hidden; }
+.stats .card::after { position: absolute; right: 12px; bottom: 10px; width: 25px; height: 2px; background: var(--acc); opacity: .55; content: ""; }
+.card h2 { color: var(--mute); font-size: .67rem; letter-spacing: .13em; }
+.big { color: var(--text); font-family: Consolas, monospace; font-size: 1.72rem; letter-spacing: -.04em; }
+.sub { margin-top: 8px; color: var(--mute); font-size: .72rem; }
+#overview-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 18px 0 0; }
+.summary-card { padding: 15px 17px; }
+.summary-label { color: #718292; font-size: .65rem; letter-spacing: .12em; text-transform: uppercase; }
+.summary-value { margin-top: 8px; color: var(--soft); font-family: Consolas, monospace; font-size: .94rem; }
+.summary-detail { margin-top: 5px; color: var(--mute); font-size: .73rem; }
+.maintenance-card { margin: 18px 0 0; padding: 19px; }
+.maintenance-header { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.maintenance-label { color: #718292; font-size: .65rem; letter-spacing: .13em; }
+.maintenance-status { font-size: 1.05rem; }
+.maintenance-status-dot { width: 8px; height: 8px; background: var(--amber); }
+.maintenance-badge { border-radius: 2px; font-family: Consolas, monospace; font-size: .65rem; letter-spacing: .1em; }
+.maintenance-metrics { gap: 10px; margin-top: 14px; }
+.maintenance-metrics > div { padding: 14px; }
+.maintenance-metrics > div > span { color: var(--mute); font-size: .72rem; }
+.maintenance-metrics strong { margin-top: 6px; font-family: Consolas, monospace; font-size: .94rem; }
+.maintenance-note { margin: 14px 0 0; padding: 11px 13px; border-left: 2px solid var(--line-bright); background: var(--panel-deep); color: var(--mute); font-size: .76rem; }
+.network-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.network-status-grid > div { display: grid; align-content: start; gap: 5px; }
+.network-status-grid strong { color: var(--soft); }
+#charts-section .grid { gap: 10px; padding: 18px 0 0; }
+#charts-section .card { min-height: 248px; }
+.legend { font-family: Consolas, monospace; font-size: .69rem; }
+canvas { opacity: .92; }
+.tip { border-radius: 2px; background: #0b1017; font-family: Consolas, monospace; }
+#alert-history-section > div:not(.section-heading), #postgres-health-section > div:not(.section-heading) { padding: 18px 0 0 !important; }
+#alert-history-list > div, #postgres-health-list > div { background: var(--panel); border-color: var(--line) !important; border-radius: 3px !important; }
+#alert-history-status, #postgres-health-status { color: var(--mute); font-size: .78rem; }
+.refresh-spinner { display: block; width: 13px; height: 13px; border: 2px solid rgba(34, 21, 9, .3); border-top-color: #221509; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 1050px) {
+  .sidebar { width: 205px; }
+  .workspace { width: calc(100% - 205px); margin-left: 205px; }
+  .topbar-meta { gap: 10px; }
+  .telemetry { min-width: 62px; }
+  .stats { grid-template-columns: repeat(3, minmax(135px, 1fr)); }
+}
+@media (max-width: 780px) {
+  .app-shell { display: block; }
+  .sidebar { position: relative; width: auto; height: auto; padding: 12px 14px 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .brand { padding: 0 4px 11px; }
+  .side-label, .side-status, .sidebar-footer { display: none; }
+  #nav { display: flex; overflow-x: auto; gap: 3px; padding-bottom: 10px; }
+  #nav a { min-width: max-content; min-height: 32px; padding: 7px 9px; font-size: .74rem; }
+  .workspace { width: auto; margin-left: 0; }
+  header.topbar { position: relative; flex-wrap: wrap; gap: 12px; min-height: 0; padding: 16px 16px 14px; }
+  .topbar-title { min-width: 160px; }
+  .topbar-meta { order: 3; width: 100%; justify-content: space-between; }
+  .telemetry { min-width: 0; }
+  #refresh-status { position: static; order: 4; width: 100%; }
+  .content { padding: 22px 16px 34px; }
+  .section-heading { align-items: flex-start; gap: 12px; flex-direction: column; }
+  .refresh-control { width: 100%; flex-wrap: wrap; }
+  .stats, #overview-summary, .network-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 430px) {
+  .stats, #overview-summary, .network-status-grid { grid-template-columns: minmax(0, 1fr); }
+  .topbar-actions { width: 100%; }
+  .topbar-actions > * { flex: 1; }
+  .topbar-actions .refresh-btn { justify-content: center; }
+}
+
 </style></head>
 <body>
-<header>
-  <h1>workstation-07-5d</h1>
-  <nav id="nav"></nav>
-  <select id="range">
-    <option value="1">1 h</option><option value="6">6 h</option><option value="24">24 h</option>
-    <option value="72">3 d</option><option value="168">7 d</option><option value="720">30 d</option>
-  </select>
-  <button id="out">Log out</button>
+<div class="app-shell">
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">U</div>
+    <div><div class="brand-name">Ubuntu Monitor</div><div class="brand-sub">Infrastructure console</div></div>
+  </div>
+  <div class="side-label">Workspace</div>
+  <nav id="nav" aria-label="Monitoring sections"></nav>
+  <div class="side-status">
+    <div class="side-status-title">Node status</div>
+    <div class="side-status-row"><span>Host</span><strong>ONLINE</strong></div>
+    <div class="side-status-row"><span>Uptime</span><strong id="side-uptime">Loading</strong></div>
+    <div class="side-status-row"><span>Telemetry</span><strong id="side-health">LIVE</strong></div>
+  </div>
+  <div class="sidebar-footer"><small>server-monitor / w07</small><button id="out">Log out</button></div>
+</aside>
+<div class="workspace">
+<header class="topbar">
+  <div class="topbar-title"><div class="topbar-kicker">Operations / node telemetry</div><h1>workstation-07-5d</h1></div>
+  <div class="topbar-meta">
+    <div class="telemetry"><span class="telemetry-label">Platform</span><span class="telemetry-value">Ubuntu host</span></div>
+    <div class="telemetry"><span class="telemetry-label">Uptime</span><span class="telemetry-value" id="header-uptime">Loading</span></div>
+    <div class="telemetry"><span class="telemetry-label">CPU / RAM</span><span class="telemetry-value" id="header-load">Loading</span></div>
+    <div class="health-state" id="header-health">Telemetry live</div>
+  </div>
+  <div class="topbar-actions">
+    <select id="range" aria-label="Chart time range">
+      <option value="1">1 h</option><option value="6">6 h</option><option value="24">24 h</option>
+      <option value="72">3 d</option><option value="168">7 d</option><option value="720">30 d</option>
+    </select>
+    <button id="refresh-btn" class="refresh-btn" title="Refresh all monitored checks and data">
+      <span id="refresh-btn-icon">↻</span> Refresh Now
+    </button>
+  </div>
+  <span id="refresh-status" class="refresh-status">Awaiting telemetry</span>
 </header>
+<main class="content">
 <section id="overview-section">
   <div class="section-heading">
     <div>
@@ -782,10 +977,6 @@ canvas { max-width: 100%; }
     </div>
     <div class="refresh-control">
       <span class="live-indicator"><span class="live-dot"></span> Live metrics</span>
-      <button id="refresh-btn" class="refresh-btn" title="Refresh all monitored checks and data">
-        <span id="refresh-btn-icon">↻</span> Refresh Now
-      </button>
-      <span id="refresh-status" class="refresh-status"></span>
     </div>
   </div>
   <div id="stats" class="stats"></div>
@@ -959,6 +1150,9 @@ canvas { max-width: 100%; }
   </div>
   <div id="grid" class="grid"></div>
 </section>
+</main>
+</div>
+</div>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1086,12 +1280,23 @@ function cfgs(p){
 }
 
 function updateStats(){
-  if(page!=="overview")return;
   const b=info.battery||{},pk=Object.keys(m).find(k=>k.startsWith("temp.coretemp.package"));
+  const cpu=m["cpu.percent"];
+  const memory=m["mem.used"];
+  const uptime=fmtUp(info.uptime||0);
+  const cpuText=cpu==null?"--":cpu.toFixed(0)+"%";
+  const memoryText=memory==null?"--":gib(memory);
+  const headerUptime=$("#header-uptime");
+  const sideUptime=$("#side-uptime");
+  const headerLoad=$("#header-load");
+  if(headerUptime)headerUptime.textContent=uptime;
+  if(sideUptime)sideUptime.textContent=uptime;
+  if(headerLoad)headerLoad.textContent=`${cpuText} / ${memoryText}`;
+  if(page!=="overview")return;
   const rows=[
-    ["CPU",m["cpu.percent"]==null?"…":m["cpu.percent"].toFixed(0)+"%",`load ${(info.load||[]).join(" / ")} · ${info.cpus||"?"} threads`],
+    ["CPU",cpu==null?"…":cpu.toFixed(0)+"%",`load ${(info.load||[]).join(" / ")} · ${info.cpus||"?"} threads`],
     ["CPU temp",pk?m[pk].toFixed(0)+"°C":"n/a",info.fan_rpm==null?"":`fan ${Math.round(info.fan_rpm)} rpm`+(info.fan_rpm===0?" (stopped)":"")],
-    ["Memory",m["mem.used"]==null?"…":gib(m["mem.used"]),`of ${gib(info.mem_total||0)} · pressure ${m["psi.memory"]??"n/a"}%`],
+    ["Memory",memory==null?"…":gib(memory),`of ${gib(info.mem_total||0)} · pressure ${m["psi.memory"]??"n/a"}%`],
     ["Swap",m["swap.used"]==null?"…":gib(m["swap.used"]),`of ${gib(info.swap_total||0)}`],
     ["Battery",b.percent==null?"n/a":b.percent+"%",`${b.status||"?"} · ${b.ac?"on AC":"ON BATTERY"} · health ${b.health_pct??"?"}%`+(b.hours_left?` · ${b.hours_left} h left`:"")],
     ["Uptime",fmtUp(info.uptime||0),`throttle events: ${info.throttle??"n/a"}`]];
@@ -1123,11 +1328,11 @@ function updateNetworkTraffic(){
 function render(){
   const labels = {
     overview: "Overview",
-    health: "Health",
+    health: "Performance",
     network: "Network",
     storage: "Storage",
-    databases: "Databases",
-    alerts: "Alerts"
+    databases: "PostgreSQL",
+    alerts: "Events"
   };
   if (!PAGES.includes(page)) page = "overview";
 
@@ -1884,7 +2089,8 @@ pollNetworkUsage();
 $("#range").value=localStorage.getItem("sm_range")||"6";
 $("#range").onchange=()=>{localStorage.setItem("sm_range",$("#range").value);charts.forEach(c=>c.load(hours()))};
 $("#out").onclick=async()=>{await fetch("/api/logout",{method:"POST"});location="/login"};
-window.onhashchange=()=>{page=location.hash.slice(1);if(built)render()};
+window.onhashchange=()=>{page=location.hash.slice(1);render()};
+render();
 setInterval(()=>charts.forEach(c=>c.load(hours())),30000);
 poll();
 pollActivity();
