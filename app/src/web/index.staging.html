@@ -1,0 +1,1704 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>server-monitor</title>
+<style>
+
+:root {
+  color-scheme: dark;
+  --bg: #0b1018;
+  --card: #141c27;
+  --line: #263244;
+  --text: #edf3fa;
+  --mute: #91a0b3;
+  --acc: #64b5f6;
+  --green: #55d6a0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 16px clamp(16px, 3vw, 36px);
+  background: rgba(11, 16, 24, .96);
+  border-bottom: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+nav { display: flex; flex-wrap: wrap; gap: 6px; }
+
+nav a, select, button {
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+nav a:hover, button:hover {
+  background: #1b2736;
+  color: var(--text);
+}
+
+nav a.on {
+  background: #203248;
+  color: #a9d8ff;
+  border-color: #34516f;
+}
+
+select, button {
+  background: var(--card);
+  border-color: var(--line);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 14px;
+  padding: 24px clamp(16px, 3vw, 36px) 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 20px clamp(16px, 3vw, 36px) 36px;
+}
+
+.card {
+  min-width: 0;
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 5px 24px rgba(0, 0, 0, .12);
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  color: var(--mute);
+  font-size: .77rem;
+  font-weight: 650;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.big {
+  font-size: clamp(1.8rem, 2.4vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -.045em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.sub {
+  margin-top: 10px;
+  color: var(--mute);
+  font-size: .82rem;
+  line-height: 1.55;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  min-height: 1.2em;
+  margin-bottom: 12px;
+  color: var(--mute);
+  font-size: .8rem;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+
+.cv { position: relative; }
+
+canvas {
+  display: block;
+  max-width: 100%;
+  touch-action: pan-y;
+}
+
+.tip {
+  position: absolute;
+  top: 4px;
+  z-index: 2;
+  display: none;
+  padding: 7px 10px;
+  background: #0b1018f5;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  font-size: .78rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  header { gap: 10px; }
+  h1 { flex-basis: 100%; }
+  nav { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  nav a { white-space: nowrap; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .card { padding: 15px; border-radius: 13px; }
+  .big { font-size: 1.7rem; }
+}
+
+@media (max-width: 380px) {
+  .stats { grid-template-columns: minmax(0, 1fr); }
+}
+
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 26px clamp(16px, 3vw, 36px) 0;
+}
+
+.section-heading h2 {
+  margin: 3px 0 2px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -.035em;
+}
+
+.section-heading p {
+  margin: 0;
+  color: var(--mute);
+  font-size: .84rem;
+}
+
+.eyebrow {
+  color: var(--acc);
+  font-size: .69rem;
+  font-weight: 700;
+  letter-spacing: .13em;
+}
+
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  font-size: .8rem;
+  white-space: nowrap;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--green);
+  border-radius: 50%;
+}
+
+#overview-section .stats { padding-top: 18px; }
+#charts-section .grid { padding-top: 18px; }
+
+@media (max-width: 760px) {
+  .section-heading { align-items: flex-start; }
+  .section-heading h2 { font-size: 1.15rem; }
+}
+
+
+.maintenance-card {
+  margin: 18px clamp(16px, 3vw, 36px) 0;
+  padding: 22px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.maintenance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.maintenance-label {
+  color: var(--mute);
+  font-size: .72rem;
+  font-weight: 650;
+  letter-spacing: .08em;
+}
+.maintenance-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  font-size: 1.1rem;
+  font-weight: 650;
+}
+.maintenance-status-dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #e5ad55;
+}
+.maintenance-badge {
+  padding: 5px 10px;
+  border: 1px solid #785d35;
+  border-radius: 8px;
+  background: #342a1e;
+  color: #f1c27c;
+  font-size: .7rem;
+  font-weight: 700;
+}
+.maintenance-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.maintenance-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.maintenance-metrics span {
+  color: var(--mute);
+  font-size: .8rem;
+}
+.maintenance-metrics strong {
+  font-size: .95rem;
+}
+.maintenance-note {
+  margin: 18px 0 0;
+  color: var(--mute);
+  font-size: .8rem;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .maintenance-card { padding: 15px; }
+  .maintenance-metrics { grid-template-columns: 1fr; }
+}
+
+
+.network-status-grid {
+  margin-top: 0;
+}
+.network-status-grid > div {
+  min-width: 0;
+}
+.network-status-grid strong {
+  font-size: 1.15rem;
+}
+.network-status-grid span:last-child {
+  overflow-wrap: anywhere;
+}
+
+/* INDUSTRIAL OPERATIONS CONSOLE */
+:root {
+  color-scheme: dark;
+  --bg: #0b0e11;
+  --card: #13181d;
+  --line: #29323a;
+  --text: #e5e9ed;
+  --mute: #8e9aa5;
+  --acc: #72b7a0;
+  --green: #72c6a3;
+  --amber: #e3b66b;
+  --red: #e07878;
+  --surface: #191f25;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.55 Inter, "Segoe UI", system-ui, sans-serif;
+  letter-spacing: .005em;
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 clamp(16px, 3vw, 38px);
+  min-height: 66px;
+  background: #101418f5;
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+}
+
+h1 {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+h1::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  background: var(--acc);
+  border-radius: 1px;
+}
+
+nav {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+nav a {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 15px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--mute);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+nav a:hover {
+  background: #ffffff05;
+  color: var(--text);
+}
+nav a.on {
+  color: var(--text);
+  background: #ffffff04;
+  border-color: var(--acc);
+}
+
+select, button {
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+}
+button:hover { border-color: var(--acc); }
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 30px clamp(16px, 3vw, 38px) 0;
+}
+.section-heading h2 {
+  margin: 4px 0;
+  font-size: clamp(20px, 2vw, 27px);
+  line-height: 1.25;
+  letter-spacing: -.045em;
+  font-weight: 700;
+  color: var(--text);
+}
+.section-heading p {
+  margin: 5px 0 0;
+  color: var(--mute);
+  font-size: 12px;
+}
+.eyebrow {
+  color: var(--acc);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .16em;
+}
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 8px #72c6a344;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 22px clamp(16px, 3vw, 38px) 0;
+}
+
+.card, .maintenance-card {
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: none;
+}
+.card {
+  padding: 18px;
+}
+.card h2 {
+  margin: 0 0 13px;
+  color: var(--mute);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.big {
+  font-size: clamp(25px, 3vw, 36px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -.055em;
+  font-variant-numeric: tabular-nums;
+}
+.sub {
+  margin-top: 10px;
+  color: var(--mute);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+#overview-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px clamp(16px, 3vw, 38px) 0;
+}
+.summary-card {
+  min-width: 0;
+  padding: 15px 16px;
+  background: #101519;
+  border: 1px solid var(--line);
+  border-left: 2px solid #46535d;
+  border-radius: 5px;
+}
+.summary-label {
+  color: var(--mute);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.summary-value {
+  margin-top: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+.summary-detail {
+  margin-top: 4px;
+  color: var(--mute);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+#maintenance-section .section-heading { padding-top: 30px; }
+.maintenance-card {
+  margin: 16px clamp(16px, 3vw, 38px) 0;
+  padding: 20px;
+}
+.maintenance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.maintenance-label {
+  color: var(--mute);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+.maintenance-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.maintenance-status-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  background: var(--amber);
+}
+.maintenance-badge {
+  padding: 5px 9px;
+  border: 1px solid #5d4a30;
+  border-radius: 3px;
+  background: #292219;
+  color: var(--amber);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .07em;
+}
+.maintenance-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+.maintenance-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px;
+  background: #101519;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.maintenance-metrics span {
+  color: var(--mute);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.maintenance-metrics strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.maintenance-note {
+  margin: 14px 0 0;
+  color: var(--mute);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.network-status-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 18px clamp(16px, 3vw, 38px) 0;
+}
+.network-status-grid > div { min-width: 0; }
+.network-status-grid strong {
+  font-size: 14px;
+}
+.network-status-grid span:last-child { overflow-wrap: anywhere; }
+
+#reliability-section #rel-container-list {
+  margin-top: 12px;
+}
+#rel-container-list > div {
+  padding: 14px;
+  background: #101519;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+#rel-container-list > div > span,
+#rel-container-list > div > strong {
+  overflow-wrap: anywhere;
+}
+
+#alert-history-section > div:nth-child(2),
+#postgres-health-section > div:nth-child(2) {
+  padding: 16px clamp(16px, 3vw, 38px) 30px !important;
+}
+#alert-history-list > div {
+  background: var(--card);
+  border-color: var(--line) !important;
+  border-radius: 5px !important;
+}
+#postgres-health-list > div {
+  background: var(--card);
+  border-color: var(--line) !important;
+  border-radius: 5px !important;
+}
+
+#charts-section .grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px clamp(16px, 3vw, 38px) 36px;
+}
+#charts-section .card { padding: 18px; }
+.legend { gap: 7px 14px; }
+.dot { width: 7px; height: 7px; }
+.tip {
+  background: #0b0e11f5;
+  border-color: #3b4751;
+  border-radius: 4px;
+}
+canvas { max-width: 100%; }
+
+#network-status-section > .maintenance-note {
+  margin: 18px clamp(16px, 3vw, 38px) 30px;
+}
+#reliability-section > .maintenance-note {
+  margin: 18px clamp(16px, 3vw, 38px) 30px;
+}
+
+@media (min-width: 1100px) {
+  #overview-section .stats .card:first-child,
+  #overview-section .stats .card:nth-child(2) {
+    border-top: 2px solid var(--acc);
+  }
+}
+@media (max-width: 900px) {
+  header { gap: 12px; flex-wrap: wrap; padding-top: 12px; }
+  h1 { flex: 1; }
+  nav { order: 3; flex-basis: 100%; overflow-x: auto; min-height: 43px; }
+  nav a { padding: 0 12px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #overview-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .maintenance-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .section-heading { padding-top: 23px; align-items: flex-start; }
+  .section-heading h2 { font-size: 21px; }
+  .stats { gap: 8px; padding-top: 16px; }
+  .card { padding: 13px; border-radius: 5px; }
+  .big { font-size: 27px; }
+  #overview-summary { gap: 8px; padding-top: 12px; }
+  .summary-card { padding: 12px; }
+  .summary-value { font-size: 15px; }
+  .maintenance-card { margin-top: 12px; padding: 14px; }
+  .maintenance-metrics { gap: 8px; }
+  .maintenance-metrics > div { padding: 11px; }
+  .network-status-grid { margin-top: 12px; }
+  #charts-section .grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  #charts-section .card { padding: 14px; }
+}
+@media (max-width: 360px) {
+  .stats, #overview-summary { grid-template-columns: minmax(0, 1fr); }
+}
+
+</style></head>
+<body>
+<header>
+  <h1>workstation-07-5d</h1>
+  <nav id="nav"></nav>
+  <select id="range">
+    <option value="1">1 h</option><option value="6">6 h</option><option value="24">24 h</option>
+    <option value="72">3 d</option><option value="168">7 d</option><option value="720">30 d</option>
+  </select>
+  <button id="out">Log out</button>
+</header>
+<section id="overview-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">SYSTEM MONITORING</div>
+      <h2>System Overview</h2>
+      <p>Live hardware health and resource utilization</p>
+    </div>
+    <span class="live-indicator"><span class="live-dot"></span> Live metrics</span>
+  </div>
+  <div id="stats" class="stats"></div>
+
+  <div id="overview-summary">
+    <div class="summary-card">
+      <div class="summary-label">Network route</div>
+      <div class="summary-value" id="ov-network">Checking…</div>
+      <div class="summary-detail" id="ov-network-detail">Awaiting connectivity data</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Docker health</div>
+      <div class="summary-value" id="ov-docker">Checking…</div>
+      <div class="summary-detail" id="ov-docker-detail">Awaiting container data</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Disk capacity</div>
+      <div class="summary-value" id="ov-storage">Checking…</div>
+      <div class="summary-detail" id="ov-storage-detail">Awaiting storage data</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Databases</div>
+      <div class="summary-value" id="ov-databases">Checking…</div>
+      <div class="summary-detail" id="ov-databases-detail">Awaiting PostgreSQL data</div>
+    </div>
+  </div>
+
+</section>
+<section id="maintenance-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">SERVER AVAILABILITY</div>
+      <h2>Maintenance Awareness</h2>
+      <p>Check for teammate activity before interrupting services</p>
+    </div>
+  </div>
+  <div class="maintenance-card">
+    <div class="maintenance-header">
+      <div>
+        <div class="maintenance-label">CURRENT ASSESSMENT</div>
+        <div class="maintenance-status">
+          <span class="maintenance-status-dot"></span>
+          <span id="maintenance-status-text">Loading activity status…</span>
+        </div>
+      </div>
+      <span class="maintenance-badge" id="maintenance-badge">UNKNOWN</span>
+    </div>
+    <div class="maintenance-metrics">
+      <div>
+        <span>PostgreSQL connections</span>
+        <strong id="db-activity-count">Loading…</strong>
+      </div>
+      <div>
+        <span>SSH connections</span>
+        <strong id="ssh-activity-count">Loading…</strong>
+      </div>
+      <div>
+        <span>Local sessions</span>
+        <strong id="local-session-count">Loading…</strong>
+      </div>
+      <div>
+        <span>Snapshot freshness</span>
+        <strong id="last-activity">Loading…</strong>
+      </div>
+    </div>
+    <p class="maintenance-note">
+      <span id="maintenance-note">Loading database activity data.</span>
+    </p>
+  </div>
+</section>
+
+<section id="network-status-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">CONNECTIVITY</div>
+      <h2>Network Status</h2>
+      <p>Host interfaces, routing preference and local addresses</p>
+    </div>
+  </div>
+  <div class="maintenance-metrics network-status-grid">
+    <div>
+      <span>Starlink · Wi-Fi</span>
+      <strong id="net-starlink-status">Loading…</strong>
+      <span id="net-starlink-ip">—</span>
+      <span id="net-starlink-traffic">Traffic: Loading…</span>
+      <span id="net-starlink-usage">Recorded today: Loading…</span>
+    </div>
+    <div>
+      <span>Dialog · Ethernet</span>
+      <strong id="net-dialog-status">Loading…</strong>
+      <span id="net-dialog-ip">—</span>
+      <span id="net-dialog-traffic">Traffic: Loading…</span>
+      <span id="net-dialog-usage">Recorded today: Loading…</span>
+    </div>
+    <div>
+      <span>Tailscale · VPN</span>
+      <strong id="net-tailscale-status">Loading…</strong>
+      <span id="net-tailscale-ip">—</span>
+      <span id="net-tailscale-traffic">Traffic: Loading…</span>
+      <span id="net-tailscale-usage">Recorded today: Loading…</span>
+    </div>
+  </div>
+  <p class="maintenance-note" id="net-connectivity-note">
+    Internet connectivity has not been tested.
+  </p>
+</section>
+
+<section id="reliability-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">SERVER HEALTH</div>
+      <h2>Server Reliability</h2>
+      <p>Network routing, disk capacity and Docker container health</p>
+    </div>
+  </div>
+  <div class="maintenance-metrics network-status-grid">
+    <div>
+      <span>Network failover</span>
+      <strong id="rel-network">Loading…</strong>
+      <span id="rel-network-detail">Checking routing and connectivity…</span>
+    </div>
+    <div>
+      <span>Disk storage · Root filesystem</span>
+      <strong id="rel-storage">Loading…</strong>
+      <span id="rel-storage-detail">Checking available space…</span>
+    </div>
+    <div>
+      <span>Docker containers</span>
+      <strong id="rel-docker">Loading…</strong>
+      <span id="rel-docker-detail">Checking container health…</span>
+    </div>
+  </div>
+  <div class="maintenance-metrics" id="rel-container-list">
+    <div>Container details loading…</div>
+  </div>
+  <p class="maintenance-note" id="rel-note">
+    Waiting for reliability readings.
+  </p>
+</section>
+
+<section id="alert-history-section">
+  <div class="section-heading">
+    <h2>Alert History</h2>
+  </div>
+  <div style="padding:16px 0">
+    <p id="alert-history-status">Loading recent alerts...</p>
+    <div id="alert-history-list" style="display:grid;gap:10px"></div>
+  </div>
+</section>
+
+
+<section id="postgres-health-section">
+  <div class="section-heading">
+    <h2>PostgreSQL Health</h2>
+  </div>
+  <div style="padding:16px 0">
+    <p id="postgres-health-status">Loading database health...</p>
+    <div id="postgres-health-list"
+         style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
+    </div>
+  </div>
+</section>
+
+<section id="charts-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">HISTORICAL METRICS</div>
+      <h2>Performance Trends</h2>
+      <p>Resource utilization over the selected time range</p>
+    </div>
+  </div>
+  <div id="grid" class="grid"></div>
+</section>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const COLORS=["#58a6ff","#3fb950","#d29922","#f85149","#bc8cff","#39c5cf","#ff7b72","#a5d6ff","#7ee787","#ffa657"];
+const bytesF=v=>{const u=["B/s","KB/s","MB/s","GB/s"];let i=0;while(Math.abs(v)>=1024&&i<3){v/=1024;i++}return v.toFixed(i>0&&Math.abs(v)<10?1:0)+" "+u[i]};
+const FMT={pct:v=>v.toFixed(v<10?1:0)+"%",c:v=>v.toFixed(0)+"°C",bytes:bytesF,gib:v=>(v/2**30).toFixed(2)+" GiB",
+  rpm:v=>Math.round(v)+" rpm",mhz:v=>Math.round(v)+" MHz",w:v=>v.toFixed(1)+" W",num:v=>v.toFixed(2),iops:v=>v.toFixed(v<10?1:0)+"/s"};
+const gib=b=>(b/2**30).toFixed(1)+" GiB";
+const fmtUp=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+"d ":"")+h+"h "+m+"m"};
+const fmtTime=(t,h)=>{const d=new Date(t*1000),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+  return h<=24?hm:d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+hm};
+
+class Chart{
+  constructor(parent,cfg){
+    this.cfg=cfg;this.data=null;this.hx=null;this.hours=6;
+    const el=document.createElement("div");el.className="card";
+    el.innerHTML=`<h2>${esc(cfg.title)}</h2><div class="legend">loading…</div><div class="cv"><canvas></canvas><div class="tip"></div></div>`;
+    parent.appendChild(el);
+    this.legendEl=el.querySelector(".legend");this.wrap=el.querySelector(".cv");
+    this.cv=el.querySelector("canvas");this.tip=el.querySelector(".tip");
+    new ResizeObserver(()=>this.draw()).observe(this.wrap);
+    this.cv.addEventListener("pointermove",e=>{this.hx=e.offsetX;this.draw()});
+    this.cv.addEventListener("pointerleave",()=>{this.hx=null;this.draw()});
+  }
+  async load(hours){
+    this.hours=hours;
+    const keys=this.cfg.series.map(s=>s.key).join(",");
+    const r=await fetch(`/api/series?keys=${keys}&hours=${hours}`);
+    if(r.status===401){location="/login";return}
+    if(!r.ok)return;
+    this.data=await r.json();this.draw();
+  }
+  legend(j){
+    const f=FMT[this.cfg.fmt||"num"];
+    this.legendEl.innerHTML=this.cfg.series.map((s,i)=>{
+      const vals=(this.data&&this.data.series[s.key])||[];
+      const v=j!=null?vals[j]:[...vals].reverse().find(x=>x!=null);
+      return `<span><span class="dot" style="background:${s.color||COLORS[i%COLORS.length]}"></span>${esc(s.label)} ${v==null?"–":f(v)}</span>`;
+    }).join("");
+  }
+  draw(){
+    const d=this.data;if(!d||!this.wrap.clientWidth)return;
+    const S=this.cfg.series,f=FMT[this.cfg.fmt||"num"],W=this.wrap.clientWidth,H=170,dpr=window.devicePixelRatio||1;
+    const cv=this.cv;cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+"px";cv.style.height=H+"px";
+    const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);
+    const L=58,R=8,T=8,B=22,pw=W-L-R,ph=H-T-B;
+    let lo=Infinity,hi=-Infinity;
+    S.forEach(s=>(d.series[s.key]||[]).forEach(v=>{if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}}));
+    if(!isFinite(lo)){g.fillStyle="#8b949e";g.font="13px system-ui";g.fillText("collecting data…",L,H/2);this.legend(null);return}
+    const span=(hi-lo)||Math.max(Math.abs(hi),1)*0.1;
+    lo=this.cfg.min!=null?this.cfg.min:lo-span*0.1;
+    hi=this.cfg.max!=null?this.cfg.max:hi+span*0.15;
+    const floor=this.cfg.floor||1;if(hi<lo+floor)hi=lo+floor;
+    const t1=d.t[d.t.length-1],t0=t1-this.hours*3600;
+    const x=t=>L+(t-t0)/(t1-t0)*pw,y=v=>T+ph-(v-lo)/(hi-lo)*ph;
+    g.font="11px system-ui";g.fillStyle="#8b949e";g.lineWidth=1;
+    for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,yy=y(v);
+      g.strokeStyle="#262d36";g.beginPath();g.moveTo(L,yy);g.lineTo(W-R,yy);g.stroke();
+      g.textAlign="right";g.fillText(f(v),L-6,yy+4)}
+    for(let i=0;i<=3;i++){const tt=t0+(t1-t0)*i/3;
+      g.textAlign=i===0?"left":i===3?"right":"center";g.fillText(fmtTime(tt,this.hours),x(tt),H-6)}
+    S.forEach((s,i)=>{
+      const vals=d.series[s.key]||[];
+      g.strokeStyle=s.color||COLORS[i%COLORS.length];g.lineWidth=1.6;g.beginPath();
+      let pen=false;
+      d.t.forEach((t,j)=>{
+        const v=vals[j];
+        if(v==null||(j>0&&t-d.t[j-1]>3*d.bucket)){pen=false;if(v==null)return}
+        const X=x(t),Y=y(v);
+        if(!pen){g.moveTo(X,Y);pen=true}else g.lineTo(X,Y);
+      });
+      g.stroke();
+    });
+    let hj=null;
+    if(this.hx!=null&&this.hx>=L&&this.hx<=W-R){
+      let best=1e9;d.t.forEach((t,j)=>{const dd=Math.abs(x(t)-this.hx);if(dd<best){best=dd;hj=j}});
+    }
+    if(hj!=null){
+      const X=x(d.t[hj]);
+      g.strokeStyle="#8b949e";g.lineWidth=1;g.beginPath();g.moveTo(X,T);g.lineTo(X,T+ph);g.stroke();
+      let html=`<b>${fmtTime(d.t[hj],this.hours)}</b>`;
+      S.forEach((s,i)=>{const v=(d.series[s.key]||[])[hj];if(v==null)return;
+        const c=s.color||COLORS[i%COLORS.length];
+        g.fillStyle=c;g.beginPath();g.arc(X,y(v),3,0,7);g.fill();
+        html+=`<br><span class="dot" style="background:${c}"></span>${esc(s.label)}: ${f(v)}`});
+      this.tip.innerHTML=html;this.tip.style.display="block";
+      const tw=this.tip.offsetWidth;this.tip.style.left=Math.max(0,Math.min(this.hx+12,W-tw))+"px";
+    }else this.tip.style.display="none";
+    this.legend(hj);
+  }
+}
+
+const PAGES=["overview","health","network","storage","databases","alerts"];
+let info={},m={},charts=[],built=false,page=(location.hash||"#overview").slice(1);
+const hours=()=>+$("#range").value;
+
+function cfgs(p){
+  const ifs=info.ifaces||[],dk=info.disks||[],tk=info.temp_keys||[];
+  const net=dir=>ifs.map(n=>({key:`net.${n}.${dir}`,label:n}));
+  const dsk=suf=>dk.map(n=>({key:`disk.${n}.${suf}`,label:n}));
+  const pkg=tk.filter(t=>t.key.includes("package"));
+  const base=(pkg.length?pkg:tk.slice(0,1)).map(t=>({key:t.key,label:"CPU package"}));
+  const cpu={title:"CPU usage",fmt:"pct",min:0,floor:5,series:[{key:"cpu.percent",label:"CPU"}]};
+  const mem={title:"Memory used",fmt:"gib",min:0,series:[{key:"mem.used",label:"RAM"}]};
+  if(p==="overview")return[cpu,{title:"CPU temperature",fmt:"c",floor:10,series:base},mem,
+    {title:"Network download",fmt:"bytes",min:0,floor:1024,series:net("rx")},
+    {title:"Network upload",fmt:"bytes",min:0,floor:1024,series:net("tx")}];
+  if(p==="health")return[cpu,
+    {title:"Load average",fmt:"num",min:0,floor:1,series:[{key:"load.1",label:"1 min"},{key:"load.5",label:"5 min"},{key:"load.15",label:"15 min"}]},
+    {title:"CPU frequency",fmt:"mhz",min:0,floor:1000,series:[{key:"cpu.mhz",label:"average"}]},
+    {title:"Temperatures",fmt:"c",floor:10,series:tk.map(t=>({key:t.key,label:t.label}))},
+    {title:"Fan speed",fmt:"rpm",min:0,floor:1000,series:[{key:"fan.rpm",label:"fan"}]},
+    mem,{title:"Swap used",fmt:"gib",min:0,floor:0.1*2**30,series:[{key:"swap.used",label:"swap"}]},
+    {title:"Pressure (share of time stalled)",fmt:"pct",min:0,floor:5,series:[{key:"psi.cpu",label:"cpu"},{key:"psi.io",label:"io"},{key:"psi.memory",label:"memory"}]},
+    {title:"Battery charge",fmt:"pct",min:0,max:100,series:[{key:"bat.percent",label:"charge"}]},
+    {title:"Battery power (negative = discharging)",fmt:"w",floor:5,series:[{key:"bat.watts",label:"power"}]}];
+  if(p==="network")return[{title:"Download per interface",fmt:"bytes",min:0,floor:1024,series:net("rx")},
+    {title:"Upload per interface",fmt:"bytes",min:0,floor:1024,series:net("tx")}];
+  if(p==="storage")return[{title:"Disk read throughput",fmt:"bytes",min:0,floor:1024,series:dsk("rd")},
+    {title:"Disk write throughput",fmt:"bytes",min:0,floor:1024,series:dsk("wr")},
+    {title:"Read operations",fmt:"iops",min:0,floor:5,series:dsk("riops")},
+    {title:"Write operations",fmt:"iops",min:0,floor:5,series:dsk("wiops")},
+    {title:"Disk busy time",fmt:"pct",min:0,max:100,series:dsk("util")}];
+  return[];
+}
+
+function updateStats(){
+  if(page!=="overview")return;
+  const b=info.battery||{},pk=Object.keys(m).find(k=>k.startsWith("temp.coretemp.package"));
+  const rows=[
+    ["CPU",m["cpu.percent"]==null?"…":m["cpu.percent"].toFixed(0)+"%",`load ${(info.load||[]).join(" / ")} · ${info.cpus||"?"} threads`],
+    ["CPU temp",pk?m[pk].toFixed(0)+"°C":"n/a",info.fan_rpm==null?"":`fan ${Math.round(info.fan_rpm)} rpm`+(info.fan_rpm===0?" (stopped)":"")],
+    ["Memory",m["mem.used"]==null?"…":gib(m["mem.used"]),`of ${gib(info.mem_total||0)} · pressure ${m["psi.memory"]??"n/a"}%`],
+    ["Swap",m["swap.used"]==null?"…":gib(m["swap.used"]),`of ${gib(info.swap_total||0)}`],
+    ["Battery",b.percent==null?"n/a":b.percent+"%",`${b.status||"?"} · ${b.ac?"on AC":"ON BATTERY"} · health ${b.health_pct??"?"}%`+(b.hours_left?` · ${b.hours_left} h left`:"")],
+    ["Uptime",fmtUp(info.uptime||0),`throttle events: ${info.throttle??"n/a"}`]];
+  $("#stats").innerHTML=rows.map(([h,v,s])=>`<div class="card"><h2>${h}</h2><div class="big">${esc(v)}</div><div class="sub">${esc(s)}</div></div>`).join("");
+}
+
+function updateNetworkTraffic(){
+  const connections = [
+    ["wifi", "net-starlink-traffic"],
+    ["ethernet", "net-dialog-traffic"],
+    ["tailscale", "net-tailscale-traffic"]
+  ];
+
+  const speed = value => {
+    if (!Number.isFinite(value) || value < 0) return "Unavailable";
+    if (value < 1024) return `${Math.round(value)} B/s`;
+    if (value < 1048576) return `${(value / 1024).toFixed(1)} KiB/s`;
+    return `${(value / 1048576).toFixed(2)} MiB/s`;
+  };
+
+  for (const [iface, id] of connections) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.textContent =
+      `↓ ${speed(m[`net.${iface}.rx`])} · ↑ ${speed(m[`net.${iface}.tx`])}`;
+  }
+}
+
+function render(){
+  const labels = {
+    overview: "Overview",
+    health: "Health",
+    network: "Network",
+    storage: "Storage",
+    databases: "Databases",
+    alerts: "Alerts"
+  };
+  if (!PAGES.includes(page)) page = "overview";
+
+  $("#nav").innerHTML = PAGES.map(p =>
+    `<a href="#${p}" class="${p===page?"on":""}">${labels[p]}</a>`
+  ).join("");
+
+  const show = (id, visible, display="block") => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible ? display : "none";
+  };
+
+  const chartPages = ["overview", "health", "network", "storage"];
+  const isCharts = chartPages.includes(page);
+
+  show("overview-section", page === "overview");
+  show("overview-summary", page === "overview", "grid");
+  show("maintenance-section", page === "overview");
+  show("reliability-section", page === "health");
+  show("network-status-section", page === "network");
+  show("postgres-health-section", page === "databases");
+  show("alert-history-section", page === "alerts");
+  show("charts-section", isCharts);
+  show("stats", page === "overview", "grid");
+
+  const range = $("#range");
+  range.style.display = isCharts ? "" : "none";
+
+  const heading = $("#charts-section .section-heading");
+  if (heading) heading.style.display = isCharts ? "flex" : "none";
+
+  const grid = $("#grid");
+  grid.innerHTML = "";
+  charts = [];
+
+  cfgs(page).forEach(c => {
+    if (c.series.length) charts.push(new Chart(grid, c));
+  });
+
+  updateStats();
+  charts.forEach(c => c.load(hours()));
+}
+async function pollActivity(){
+  const statusText = $("#maintenance-status-text");
+  const badge = $("#maintenance-badge");
+  const count = $("#db-activity-count");
+  const freshness = $("#last-activity");
+  const note = $("#maintenance-note");
+  const sshCount = $("#ssh-activity-count");
+  const localCount = $("#local-session-count");
+
+  try {
+    const r = await fetch("/api/activity", {cache: "no-store"});
+    if (r.status === 401) { location = "/login"; return; }
+    if (!r.ok) throw new Error("Activity API unavailable");
+
+    const d = await r.json();
+    if (d.status !== "ok" || !d.databases ||
+        !Number.isFinite(d.age_seconds) || d.age_seconds > 90) {
+      throw new Error("Activity snapshot stale or invalid");
+    }
+
+    const dbs = Object.values(d.databases);
+    if (dbs.length !== 5 || dbs.some(x =>
+        !Number.isInteger(x.total) || !Number.isInteger(x.active) ||
+        !Number.isInteger(x.idle_in_transaction))) {
+      throw new Error("Incomplete activity data");
+    }
+
+    const total = dbs.reduce((sum, x) => sum + x.total, 0);
+    const active = dbs.reduce((sum, x) => sum + x.active, 0);
+    const transactions = dbs.reduce((sum, x) =>
+      sum + x.idle_in_transaction, 0);
+
+    const sessions = d.sessions || {};
+    const ssh = sessions.ssh;
+    const local = sessions.local;
+    const sshValid = ssh?.status === "ok" &&
+      Number.isInteger(ssh.connections) && ssh.connections >= 0;
+    const localValid = local?.status === "ok" &&
+      Number.isInteger(local.sessions) && local.sessions >= 0;
+
+    sshCount.textContent = sshValid ? String(ssh.connections) : "Unknown";
+    localCount.textContent = localValid ? String(local.sessions) : "Unknown";
+
+    // Host network status from the authenticated activity snapshot.
+    const network = d.network || {};
+    const interfaces = network.interfaces || {};
+
+    const networkCards = [
+      ["wlp2s0", "net-starlink-status", "net-starlink-ip", "starlink"],
+      ["enp1s0", "net-dialog-status", "net-dialog-ip", "dialog"],
+      ["tailscale0", "net-tailscale-status", "net-tailscale-ip", null]
+    ];
+
+    const checkAge = timestamp => {
+      if (!Number.isFinite(timestamp) || timestamp <= 0) return "time unknown";
+      const seconds = Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+      if (seconds < 60) return `${seconds}s ago`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      return `${Math.floor(seconds / 3600)}h ago`;
+    };
+
+    for (const [name, statusId, ipId, provider] of networkCards) {
+      const item = interfaces[name];
+      const statusEl = document.getElementById(statusId);
+      const ipEl = document.getElementById(ipId);
+
+      if (!statusEl || !ipEl) continue;
+
+      if (network.status !== "ok" || item?.status !== "ok") {
+        statusEl.textContent = "Unknown";
+        ipEl.textContent = "Status unavailable";
+        continue;
+      }
+
+      const preferred = network.preferred_interface === name;
+      const isTailscale = name === "tailscale0";
+
+      if (isTailscale) {
+        statusEl.textContent = item.ipv4
+          ? "Interface present"
+          : "No IPv4 address";
+      } else {
+        statusEl.textContent = item.operstate === "UP"
+          ? (preferred ? "UP · Preferred route" : "UP · Not preferred")
+          : item.operstate === "DOWN"
+            ? "DOWN"
+            : "State unknown";
+      }
+
+      ipEl.textContent = item.ipv4 || "No IPv4 address";
+
+      if (provider) {
+        const result = network.connectivity?.[provider];
+        const checkedAt = network.preferred_interface === name
+          ? network.active_checked_at
+          : network.backup_checked_at;
+        const role = preferred ? "Active" : "Backup";
+
+        const reachability = result?.status === "reachable"
+          ? "Internet reachable"
+          : result?.status === "unreachable"
+            ? "Internet unreachable"
+            : result?.status === "http_error"
+              ? "HTTP check failed"
+              : "Internet status unknown";
+
+        const latency = result?.status === "reachable" &&
+          Number.isFinite(result.response_ms)
+          ? ` · ${Math.round(result.response_ms)} ms`
+          : "";
+
+        statusEl.textContent = `${role} · ${reachability}`;
+        ipEl.textContent =
+          `${item.ipv4 || "No IPv4 address"} · Checked ${checkAge(checkedAt)}${latency}`;
+      }
+    }
+
+    const connectivityNote = document.getElementById("net-connectivity-note");
+    if (connectivityNote) {
+      connectivityNote.textContent = network.status === "ok"
+        ? "Internet checks: active connection every 5 minutes, backup every 30 minutes. Results reflect the last check; automatic failover has not been tested."
+        : "Network status unavailable or incomplete. Internet reachability cannot be confirmed.";
+    }
+
+    count.textContent = `${total} connection${total === 1 ? "" : "s"} · ${active} active`;
+    freshness.textContent = `${d.age_seconds}s ago`;
+
+    const activityDetected =
+      total > 0 || active > 0 || transactions > 0 ||
+      (sshValid && ssh.connections > 0) ||
+      (localValid && local.sessions > 0);
+
+    if (activityDetected) {
+      statusText.textContent = "Activity detected — verify before maintenance";
+      badge.textContent = "ACTIVITY DETECTED";
+      note.textContent =
+        "One or more database connections, SSH connections, or local sessions are present. Session counts do not prove someone is actively working. Confirm with teammates before maintenance.";
+    } else if (sshValid && localValid) {
+      statusText.textContent = "No activity observed";
+      badge.textContent = "NO ACTIVITY OBSERVED";
+      note.textContent =
+        "No database connections, SSH connections, or local sessions were observed. Background jobs and brief activity may be missed. Confirm with teammates before maintenance.";
+    } else {
+      statusText.textContent = "Activity status incomplete";
+      badge.textContent = "UNKNOWN";
+      note.textContent =
+        "No activity was detected in the available readings, but one or more session checks are unavailable. Do not assume the workstation is idle.";
+    }
+  } catch (e) {
+    for (const id of [
+      "net-starlink-status", "net-dialog-status", "net-tailscale-status"
+    ]) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = "Unknown";
+    }
+    for (const id of [
+      "net-starlink-ip", "net-dialog-ip", "net-tailscale-ip"
+    ]) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = "Status unavailable";
+    }
+    const connectivityNote = document.getElementById("net-connectivity-note");
+    if (connectivityNote) {
+      connectivityNote.textContent =
+        "Network readings unavailable or stale. Connectivity has not been tested.";
+    }
+    statusText.textContent = "Activity status unavailable";
+    badge.textContent = "UNKNOWN";
+    count.textContent = "Unknown";
+    sshCount.textContent = "Unknown";
+    localCount.textContent = "Unknown";
+    freshness.textContent = "Unavailable";
+    note.textContent =
+      "The activity API failed or its data is stale. Do not use this reading to decide whether maintenance is safe.";
+  }
+
+  setTimeout(pollActivity, 10000);
+}
+
+
+
+async function pollReliability(){
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  const unknown = () => {
+    set("rel-network", "Unknown");
+    set("rel-network-detail", "Routing status unavailable");
+    set("rel-storage", "Unknown");
+    set("rel-storage-detail", "Storage status unavailable");
+    set("rel-docker", "Unknown");
+    set("rel-docker-detail", "Container status unavailable");
+    set("rel-note", "Reliability readings unavailable or stale.");
+    set("ov-network", "Unknown");
+    set("ov-network-detail", "Connectivity data unavailable");
+    set("ov-docker", "Unknown");
+    set("ov-docker-detail", "Container data unavailable");
+    set("ov-storage", "Unknown");
+    set("ov-storage-detail", "Storage data unavailable");
+    const list = document.getElementById("rel-container-list");
+    if (list) list.replaceChildren();
+  };
+
+  try {
+    const response = await fetch("/api/reliability", {cache:"no-store"});
+    if (response.status === 401) {
+      location = "/login";
+      return;
+    }
+    if (!response.ok) throw new Error("Reliability API unavailable");
+
+    const data = await response.json();
+    if (data.status !== "ok") throw new Error("Stale snapshot");
+
+    const network = data.failover || {};
+    const preferred = network.preferred_interface;
+    set("rel-network",
+      preferred === "wlp2s0" ? "Starlink preferred" :
+      preferred === "enp1s0" ? "Dialog preferred" : "Unknown"
+    );
+
+    const networkDetail =
+      `Starlink: ${network.starlink || "unknown"} · ` +
+      `Dialog: ${network.dialog || "unknown"}`;
+
+    set("rel-network-detail", networkDetail);
+
+    const storage = data.storage || {};
+    if (storage.status === "ok") {
+      set("rel-storage", `${storage.used_percent}% used · ${storage.level}`);
+      set("rel-storage-detail",
+        `${gib(storage.available_bytes)} available of ${gib(storage.total_bytes)}`
+      );
+    } else {
+      set("rel-storage", "Unknown");
+      set("rel-storage-detail", "Storage check unavailable");
+    }
+
+    const containers = data.docker?.containers || {};
+    const entries = Object.entries(containers);
+    const healthy = entries.filter(([_, item]) =>
+      item.state === "running" && item.health === "healthy"
+    ).length;
+
+    set("rel-docker",
+      data.docker?.status === "ok"
+        ? `${healthy}/${entries.length} healthy`
+        : "Unknown"
+    );
+    set("rel-docker-detail", `${entries.length} monitored containers`);
+    set("ov-network",
+      preferred === "wlp2s0" ? "Starlink" :
+      preferred === "enp1s0" ? "Dialog" : "Unknown"
+    );
+    set("ov-network-detail",
+      `Starlink ${network.starlink || "unknown"} · Dialog ${network.dialog || "unknown"}`
+    );
+    set("ov-docker",
+      data.docker?.status === "ok" ? `${healthy}/${entries.length} healthy` : "Unknown"
+    );
+    set("ov-docker-detail", `${entries.length} monitored containers`);
+
+    if (storage.status === "ok") {
+      set("ov-storage", `${storage.used_percent}% used`);
+      set("ov-storage-detail", `${gib(storage.available_bytes)} available`);
+    } else {
+      set("ov-storage", "Unknown");
+      set("ov-storage-detail", "Storage data unavailable");
+    }
+
+    const list = document.getElementById("rel-container-list");
+    if (list) {
+      list.replaceChildren();
+      for (const [name, item] of entries) {
+        const card = document.createElement("div");
+        const title = document.createElement("span");
+        const status = document.createElement("strong");
+        const detail = document.createElement("span");
+
+        title.textContent = name;
+        status.textContent = `${item.state} · ${item.health}`;
+        detail.textContent =
+          `Restarts: ${item.restarts === null ? "Unknown" : item.restarts}`;
+
+        card.append(title, status, detail);
+        list.append(card);
+      }
+    }
+
+    set("rel-note",
+      network.backup_internet_confirmed
+        ? "Dialog is the preferred route and its internet check succeeded. Automatic failover behavior has not been independently tested."
+        : "Preferred routing and connectivity are observed independently. Automatic failover has not been tested."
+    );
+  } catch (error) {
+    unknown();
+  }
+
+  setTimeout(pollReliability, 10000);
+}
+
+
+
+async function pollPostgresHealth(){
+  const status = document.getElementById("postgres-health-status");
+  const list = document.getElementById("postgres-health-list");
+  if (!status || !list) return;
+
+  try {
+    const response = await fetch("/api/postgres/health", {cache:"no-store"});
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+
+    if (!response.ok) throw new Error("API unavailable");
+
+    const data = await response.json();
+
+    if (data.status !== "ok" || !data.databases) {
+      throw new Error("Database health unavailable");
+    }
+
+    list.replaceChildren();
+
+    const names = [
+      "imfs-pg-m1",
+      "imfs-pg-m2",
+      "imfs-pg-m3",
+      "imfs-pg-m4",
+      "imfs-pg-integration"
+    ];
+
+    let healthy = 0;
+
+    for (const name of names) {
+      const db = data.databases[name];
+      const card = document.createElement("div");
+
+      card.style.cssText =
+        "padding:16px;border:1px solid var(--border,#444);border-radius:12px";
+
+      const heading = document.createElement("div");
+      heading.style.cssText =
+        "display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-weight:600";
+
+      const title = document.createElement("span");
+      title.textContent = name.replace("imfs-pg-", "").toUpperCase();
+
+      const state = document.createElement("span");
+      const ok = db && db.status === "ok";
+      state.textContent = ok ? "Available" : "Unknown";
+      state.style.color = ok ? "#10b981" : "#f59e0b";
+
+      heading.append(title, state);
+      card.appendChild(heading);
+
+      const details = document.createElement("div");
+      details.style.cssText =
+        "margin-top:12px;display:grid;gap:7px;font-size:13px";
+
+      function addMetric(label, value){
+        const line = document.createElement("div");
+        line.style.cssText =
+          "display:flex;justify-content:space-between;gap:12px";
+
+        const left = document.createElement("span");
+        left.textContent = label;
+
+        const right = document.createElement("strong");
+        right.textContent = String(value);
+
+        line.append(left, right);
+        details.appendChild(line);
+      }
+
+      if (ok) {
+        healthy++;
+
+        const capacity = db.max_connections > 0
+          ? (100 * db.total / db.max_connections).toFixed(1) + "%"
+          : "Unknown";
+
+        addMetric("Connections", db.total + " / " + db.max_connections);
+        addMetric("Capacity used", capacity);
+        addMetric("Active / Idle", db.active + " / " + db.idle);
+        addMetric("Idle in transaction", db.idle_in_transaction);
+        addMetric("Queries over 60s", db.long_running);
+        addMetric("Database size", (db.database_size_bytes / 1048576).toFixed(2) + " MiB");
+        addMetric("Monitor response", db.response_ms + " ms");
+
+        if (db.long_running > 0 || db.idle_in_transaction > 0) {
+          state.style.color = "#f59e0b";
+          state.textContent = "Attention";
+        }
+      } else {
+        addMetric("Metrics", "Unavailable");
+      }
+
+      card.appendChild(details);
+      list.appendChild(card);
+    }
+
+    status.textContent =
+      healthy + " / " + names.length +
+      " database checks available · snapshot " +
+      data.age_seconds + "s old";
+    const dbSummary = document.getElementById("ov-databases");
+    const dbDetail = document.getElementById("ov-databases-detail");
+    if (dbSummary) dbSummary.textContent = `${healthy}/${names.length} available`;
+    if (dbDetail) dbDetail.textContent = `Snapshot ${data.age_seconds}s old`;
+
+  } catch (error) {
+    status.textContent = "PostgreSQL health temporarily unavailable.";
+    list.replaceChildren();
+  }
+}
+
+setInterval(pollPostgresHealth, 30000);
+
+async function pollAlertHistory(){
+  const status = document.getElementById("alert-history-status");
+  const list = document.getElementById("alert-history-list");
+  if (!status || !list) return;
+
+  try {
+    const response = await fetch("/api/alerts/history", {cache:"no-store"});
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+
+    if (!response.ok) throw new Error("API unavailable");
+
+    const data = await response.json();
+    if (data.status !== "ok" || !Array.isArray(data.events)) {
+      throw new Error("Alert history unavailable");
+    }
+
+    list.replaceChildren();
+
+    if (data.events.length === 0) {
+      status.textContent = "No alerts recorded yet.";
+      return;
+    }
+
+    status.textContent = "Recent Telegram alert events · newest first";
+
+    const formatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone:"Asia/Colombo",
+      day:"2-digit",
+      month:"short",
+      hour:"2-digit",
+      minute:"2-digit",
+      second:"2-digit",
+      hour12:false
+    });
+
+    for (const event of data.events) {
+      const item = document.createElement("div");
+      item.style.cssText =
+        "padding:12px 14px;border:1px solid var(--border, #444);border-radius:10px";
+
+      const heading = document.createElement("div");
+      heading.style.cssText =
+        "display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-weight:600";
+
+      const severity = document.createElement("span");
+      const level = String(event.severity || "").toUpperCase();
+      severity.textContent = level;
+      severity.style.color =
+        level === "CRITICAL" ? "#ef4444" :
+        level === "WARNING" ? "#f59e0b" : "inherit";
+
+      const delivery = document.createElement("span");
+      delivery.textContent =
+        event.delivery === "delivered" ? "Telegram delivered" :
+        event.delivery === "queued" ? "Telegram queued" : "Delivery unknown";
+
+      heading.append(severity, delivery);
+
+      const message = document.createElement("div");
+      message.style.marginTop = "7px";
+      message.textContent = String(event.message || "");
+
+      const timestamp = document.createElement("div");
+      timestamp.style.cssText =
+        "margin-top:7px;font-size:12px;opacity:.7";
+
+      const date = new Date(event.timestamp);
+      timestamp.textContent = Number.isNaN(date.getTime())
+        ? "Time unavailable"
+        : formatter.format(date) + " Sri Lanka time";
+
+      item.append(heading, message, timestamp);
+      list.appendChild(item);
+    }
+  } catch (error) {
+    status.textContent = "Alert history temporarily unavailable.";
+  }
+}
+
+setInterval(pollAlertHistory, 30000);
+
+async function pollNetworkUsage(){
+  const formatBytes = value => {
+    if (!Number.isFinite(value) || value < 0) return "Unavailable";
+    if (value < 1024) return `${Math.round(value)} B`;
+    if (value < 1048576) return `${(value / 1024).toFixed(1)} KiB`;
+    if (value < 1073741824) return `${(value / 1048576).toFixed(2)} MiB`;
+    return `${(value / 1073741824).toFixed(2)} GiB`;
+  };
+
+  try {
+    const response = await fetch("/api/network/usage-today", {
+      cache: "no-store"
+    });
+    if (response.status === 401) {
+      location = "/login";
+      return;
+    }
+    if (!response.ok) throw new Error("Usage API unavailable");
+
+    const data = await response.json();
+
+    for (const name of ["starlink", "dialog", "tailscale"]) {
+      const el = document.getElementById(`net-${name}-usage`);
+      const usage = data.interfaces?.[name];
+      if (!el) continue;
+
+      if (!usage) {
+        el.textContent = "Recorded today: Unavailable";
+        continue;
+      }
+
+      const first = usage.rx_first_sample;
+      const startTime = Number.isFinite(first) && first > 0
+        ? new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Colombo",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23"
+          }).format(new Date(first * 1000))
+        : null;
+
+      el.textContent =
+        `Recorded today: ↓ ${formatBytes(usage.rx_bytes)} · ` +
+        `↑ ${formatBytes(usage.tx_bytes)}` +
+        (startTime ? ` · Since ${startTime} · Estimated` : " · Estimated");
+    }
+  } catch (error) {
+    for (const name of ["starlink", "dialog", "tailscale"]) {
+      const el = document.getElementById(`net-${name}-usage`);
+      if (el) el.textContent = "Recorded today: Unavailable";
+    }
+  }
+
+  setTimeout(pollNetworkUsage, 60000);
+}
+
+async function poll(){
+  try{
+    const r=await fetch("/api/now");
+    if(r.status===401){location="/login";return}
+    const d=await r.json();m=d.m||{};info=d.info||{};
+    updateNetworkTraffic();
+    if(d.ts&&!built){built=true;render()}else updateStats();
+  }catch(e){}
+  setTimeout(poll,built?10000:3000);
+}
+
+pollReliability();
+pollAlertHistory();
+pollPostgresHealth();
+pollNetworkUsage();
+$("#range").value=localStorage.getItem("sm_range")||"6";
+$("#range").onchange=()=>{localStorage.setItem("sm_range",$("#range").value);charts.forEach(c=>c.load(hours()))};
+$("#out").onclick=async()=>{await fetch("/api/logout",{method:"POST"});location="/login"};
+window.onhashchange=()=>{page=location.hash.slice(1);if(built)render()};
+setInterval(()=>charts.forEach(c=>c.load(hours())),30000);
+poll();
+pollActivity();
+</script></body></html>

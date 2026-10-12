@@ -1,0 +1,22 @@
+.env
+secrets/
+data/
+__pycache__/
+
+# Local backups and historical copies
+*.bak
+*.bak-*
+*.backup
+*.backup-*
+*.pre-*
+
+# Python generated files
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store

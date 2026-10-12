@@ -1,0 +1,40 @@
+name: server-monitor
+
+services:
+  monitor:
+    build: ./app
+    image: server-monitor:dev
+    container_name: server-monitor
+    restart: unless-stopped
+    ports:
+      # Published only on the Tailscale IP. The :? makes compose refuse to start
+      # if BIND_IP is empty, so it can never fall back to all interfaces.
+      - "${BIND_IP:?set BIND_IP in .env}:8088:8080"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - ./secrets:/secrets:ro
+      - ./data:/data
+    environment:
+      HOST_PROC: /host/proc
+      HOST_SYS: /host/sys
+      DB_PATH: /data/metrics.db
+      SAMPLE_SECONDS: "15"
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 200m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+      start_interval: 3s

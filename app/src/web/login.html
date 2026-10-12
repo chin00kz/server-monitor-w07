@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>server-monitor · login</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0e1116;color:#e6edf3;font:15px system-ui,sans-serif}
+form{width:min(320px,90vw);background:#161b22;border:1px solid #262d36;border-radius:10px;padding:20px}
+h1{font-size:1.05rem;margin:0 0 14px}
+input,button{width:100%;padding:10px;border-radius:6px;border:1px solid #262d36;background:#0e1116;color:inherit;font:inherit}
+button{margin-top:10px;background:#238636;border-color:#238636;cursor:pointer}
+#e{color:#f85149;font-size:.85rem;min-height:1.2em;margin-top:8px}
+</style></head>
+<body>
+<form id="f"><h1>server-monitor</h1>
+<input id="p" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+<button>Log in</button><div id="e"></div></form>
+<script>
+f.onsubmit=async(ev)=>{ev.preventDefault();
+ const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:p.value})});
+ if(r.ok){location="/";return}
+ e.textContent=r.status===429?"Too many attempts. Try again later.":r.status===503?"No password set yet.":"Wrong password.";p.value=""};
+</script></body></html>
