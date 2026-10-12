@@ -8,57 +8,6 @@
 
 :root {
   color-scheme: dark;
-const dockerControlInFlight = new Set();
-
-async function requestDockerAction(container, action, buttons, status, state, detail, logPanel, logOutput) {
-  if ((action === "stop" || action === "restart") &&
-      !window.confirm(`${action === "stop" ? "Stop" : "Restart"} ${container}?`)) {
-    return;
-  }
-  if (dockerControlInFlight.has(container)) return;
-
-  dockerControlInFlight.add(container);
-  buttons.forEach(button => { button.disabled = true; });
-  status.className = "docker-control-status";
-  status.textContent = `${action} requested...`;
-  try {
-    const response = await fetch("/api/docker/control", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({container, action})
-    });
-    if (response.status === 401) { location = "/login"; return; }
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.detail || result.message || `HTTP ${response.status}`);
-    }
-    if (result.status === "failed") {
-      throw new Error(result.message || "Docker action failed");
-    }
-    if (action === "logs") {
-      logOutput.textContent = result.logs || "No recent logs.";
-      logPanel.style.display = "block";
-    }
-    if (result.state) state.textContent = `${result.state} · ${result.health || "unknown"}`;
-    if (result.state) detail.textContent = `Container status updated · Restarts will appear on the next health poll`;
-    status.className = "docker-control-status ok";
-    status.textContent = result.status === "pending"
-      ? `${action} queued; waiting for host controller`
-      : (result.message || `${action} completed`);
-    if (action !== "logs") {
-      setTimeout(() => pollReliability(false).catch(() => {}), 5000);
-    }
-  } catch (error) {
-    status.className = "docker-control-status error";
-    status.textContent = error.message || "Docker action failed";
-  } finally {
-    dockerControlInFlight.delete(container);
-    buttons.forEach(button => { button.disabled = false; });
-  }
-}
-
-
   --bg: #0b1018;
   --card: #141c27;
   --line: #263244;
@@ -1279,6 +1228,57 @@ const fmtUp=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.fl
 const fmtTime=(t,h)=>{const d=new Date(t*1000),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   return h<=24?hm:d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+hm};
 
+const dockerControlInFlight = new Set();
+
+async function requestDockerAction(container, action, buttons, status, state, detail, logPanel, logOutput, closeLogs) {
+  if ((action === "stop" || action === "restart") &&
+      !window.confirm(`${action === "stop" ? "Stop" : "Restart"} ${container}?`)) {
+    return;
+  }
+  if (dockerControlInFlight.has(container)) return;
+
+  dockerControlInFlight.add(container);
+  buttons.forEach(button => { button.disabled = true; });
+  status.className = "docker-control-status";
+  status.textContent = `${action} requested...`;
+  try {
+    const response = await fetch("/api/docker/control", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({container, action})
+    });
+    if (response.status === 401) { location = "/login"; return; }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.detail || result.message || `HTTP ${response.status}`);
+    }
+    if (result.status === "failed") {
+      throw new Error(result.message || "Docker action failed");
+    }
+    if (action === "logs") {
+      logOutput.textContent = result.logs || "No recent logs.";
+      logPanel.style.display = "block";
+      closeLogs.style.display = "inline-block";
+    }
+    if (result.state) state.textContent = `${result.state} · ${result.health || "unknown"}`;
+    if (result.state) detail.textContent = "Container status updated · Restarts will appear on the next health poll";
+    status.className = "docker-control-status ok";
+    status.textContent = result.status === "pending"
+      ? `${action} queued; waiting for host controller`
+      : (result.message || `${action} completed`);
+    if (action !== "logs") {
+      setTimeout(() => pollReliability(false).catch(() => {}), 5000);
+    }
+  } catch (error) {
+    status.className = "docker-control-status error";
+    status.textContent = error.message || "Docker action failed";
+  } finally {
+    dockerControlInFlight.delete(container);
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
 class Chart{
   constructor(parent,cfg){
     this.cfg=cfg;this.data=null;this.hx=null;this.hours=6;
@@ -1830,7 +1830,7 @@ async function pollReliability(schedule = true){
           button.disabled = !authorized || !enabled;
           button.title = authorized ? `${action} ${name}` : "Container control is not enabled for this container";
           button.addEventListener("click", () => requestDockerAction(
-            name, action, buttons, controlStatus, status, detail, logPanel, logOutput
+            name, action, buttons, controlStatus, status, detail, logPanel, logOutput, closeLogs
           ));
           buttons.push(button);
           controls.append(button);
@@ -1842,7 +1842,11 @@ async function pollReliability(schedule = true){
         const closeLogs = document.createElement("button");
         closeLogs.type = "button";
         closeLogs.textContent = "Close logs";
-        closeLogs.addEventListener("click", () => { logPanel.style.display = "none"; });
+        closeLogs.style.display = "none";
+        closeLogs.addEventListener("click", () => {
+          logPanel.style.display = "none";
+          closeLogs.style.display = "none";
+        });
         controls.append(controlStatus, closeLogs, logPanel);
         card.append(title, status, detail, controls);
         list.append(card);
