@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Server Monitor Cloud</title>
+<style>
+:root{--bg:#080b10;--panel:#111821;--panel2:#161f29;--line:#2a3948;--text:#e8edf2;--muted:#8494a4;--orange:#f28c28;--green:#5cc98a;--amber:#e5ac52;--red:#e16b67;--gray:#9aa7b3}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI",Ubuntu,sans-serif}button,input{font:inherit}button{cursor:pointer}.shell{width:min(100%,900px);margin:auto;padding:18px 14px 28px}.topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding:7px 0 20px;border-bottom:1px solid var(--line)}.eyebrow{color:var(--orange);font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.topbar h1{margin:4px 0 0;font-size:22px;font-weight:650}.topbar p{margin:3px 0 0;color:var(--muted);font-size:12px}.ghost{border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--muted);padding:7px 10px}.ghost:hover{border-color:var(--orange);color:var(--text)}.statebar{display:flex;align-items:center;gap:9px;margin:16px 0;padding:12px 13px;border:1px solid var(--line);background:var(--panel)}.state-dot{width:8px;height:8px;border-radius:50%;background:var(--gray)}.statebar.live{border-color:rgba(92,201,138,.45)}.statebar.live .state-dot{background:var(--green)}.statebar.stale{border-color:rgba(229,172,82,.5)}.statebar.stale .state-dot{background:var(--amber)}.statebar.disconnected{border-color:rgba(225,107,103,.55)}.statebar.disconnected .state-dot{background:var(--red)}.statebar strong{font-size:13px}.statebar span:last-child{margin-left:auto;color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}.panel{min-width:0;padding:15px;border:1px solid var(--line);border-radius:3px;background:var(--panel)}.panel h2{margin:0 0 13px;font-size:12px;letter-spacing:.1em;text-transform:uppercase}.panel h2 small{float:right;color:var(--muted);font-size:11px;font-weight:400;letter-spacing:0;text-transform:none}.route-grid,.service-list{display:grid;gap:8px}.route{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid var(--line);background:var(--panel2)}.route-label{color:var(--muted);font-size:12px}.route strong{font-size:12px}.good{color:var(--green)}.warn{color:var(--amber)}.bad{color:var(--red)}.neutral{color:var(--gray)}.route strong::before,.service-status::before{display:inline-block;width:6px;height:6px;margin-right:7px;border-radius:50%;background:currentColor;content:""}.metrics{display:grid;gap:14px}.metric-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:6px}.metric-head span{color:var(--muted);font-size:12px}.metric-head strong{font-family:Consolas,monospace;font-size:12px}.bar{height:7px;overflow:hidden;border:1px solid var(--line);background:#0b1016}.bar i{display:block;height:100%;width:0;background:var(--green);transition:width .2s}.bar.warn i{background:var(--amber)}.bar.bad i{background:var(--red)}.battery{display:flex;justify-content:space-between;align-items:center;gap:12px}.battery strong{font-size:20px}.battery span{color:var(--muted);font-size:12px}.service{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:10px;border-bottom:1px solid var(--line)}.service:last-child{border-bottom:0}.service-name{font-size:12px}.service-status{font-size:11px;font-weight:650;white-space:nowrap}.service-status.healthy{color:var(--green)}.service-status.no_check,.service-status.unknown{color:var(--gray)}.service-status.starting{color:var(--amber)}.service-status.unhealthy,.service-status.stopped{color:var(--red)}.footer{display:flex;justify-content:space-between;gap:15px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.login{width:min(100%,380px);margin:12vh auto;padding:22px}.login h1{margin:4px 0 18px;font-size:22px}.field{display:grid;gap:6px;margin:12px 0}.field label{color:var(--muted);font-size:12px}.field input{width:100%;padding:10px;border:1px solid var(--line);border-radius:3px;background:var(--panel2);color:var(--text)}.primary{width:100%;margin-top:8px;padding:10px;border:1px solid var(--orange);border-radius:3px;background:var(--orange);color:#201307;font-weight:750}.error{min-height:18px;margin-top:10px;color:var(--red);font-size:12px}.hidden{display:none!important}@media(min-width:650px){.shell{padding:30px 24px 40px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wide{grid-column:1/-1}.metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.topbar h1{font-size:26px}}
+</style>
+</head>
+<body>
+<section id="login-view" class="login panel">
+  <div class="eyebrow">SERVER MONITOR / CLOUD</div><h1>Team access</h1>
+  <form id="login-form"><div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required></div><div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div><button class="primary" type="submit">Sign in</button><div id="login-error" class="error"></div></form>
+</section>
+<main id="dashboard-view" class="shell hidden">
+  <header class="topbar"><div><div class="eyebrow">CLOUD STATUS / READ ONLY</div><h1 id="node-name">Server Monitor</h1><p>Last known node telemetry</p></div><button id="logout" class="ghost" type="button">Sign out</button></header>
+  <div id="connection-state" class="statebar disconnected"><i class="state-dot"></i><strong id="connection-label">Connection lost</strong><span id="connection-detail">No cloud heartbeat</span></div>
+  <div class="grid">
+    <section class="panel"><h2>Network route</h2><div class="route-grid"><div class="route"><span class="route-label">Active route</span><strong id="active-route" class="neutral">Unknown</strong></div><div class="route"><span class="route-label">Starlink Mini</span><strong id="starlink" class="neutral">Unknown</strong></div><div class="route"><span class="route-label">Dialog Ethernet</span><strong id="dialog" class="neutral">Unknown</strong></div></div></section>
+    <section class="panel"><h2>Battery activity</h2><div class="battery"><strong id="battery-activity" class="neutral">Unknown</strong><span id="battery-detail">No activity signal</span></div></section>
+    <section class="panel"><h2>Node status</h2><div class="route-grid"><div class="route"><span class="route-label">Host</span><strong id="host-status" class="neutral">Connection lost</strong></div><div class="route"><span class="route-label">Uptime</span><strong id="uptime" class="neutral">Unknown</strong></div><div class="route"><span class="route-label">Telemetry</span><strong id="telemetry-status" class="neutral">Disconnected</strong></div></div></section>
+    <section class="panel"><h2>Server resources</h2><div class="metrics"><div><div class="metric-head"><span>CPU usage</span><strong id="cpu">Unknown</strong></div><div id="cpu-bar" class="bar"><i></i></div></div><div><div class="metric-head"><span>RAM usage</span><strong id="ram">Unknown</strong></div><div id="ram-bar" class="bar"><i></i></div></div><div><div class="metric-head"><span>Disk usage</span><strong id="disk">Unknown</strong></div><div id="disk-bar" class="bar"><i></i></div></div></div></section>
+    <section class="panel wide"><h2>Services <small id="service-count">Unknown</small></h2><div id="services" class="service-list"></div></section>
+  </div>
+  <footer class="footer"><span>Last successful update: <strong id="last-update">Never</strong></span><span>Read-only status</span></footer>
+</main>
+<script>
+const $ = selector => document.querySelector(selector);
+const loginView = $("#login-view");
+const dashboardView = $("#dashboard-view");
+const serviceNames = ["IMFS Integration", "IMFS M1", "IMFS M2", "IMFS M3", "IMFS M4"];
+const formatUptime = seconds => {
+  if (!Number.isFinite(seconds)) return "Unknown";
+  const days = Math.floor(seconds / 86400), hours = Math.floor(seconds % 86400 / 3600), minutes = Math.floor(seconds % 3600 / 60);
+  return `${days ? `${days}d ` : ""}${hours}h ${minutes}m`;
+};
+const formatTime = value => { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString([], {dateStyle:"medium", timeStyle:"short"}); };
+function setValue(id, value, level = "neutral") { const element = $("#" + id); element.textContent = value; element.className = level; }
+function levelFor(value) { return !Number.isFinite(value) ? "" : value >= 90 ? "bad" : value >= 75 ? "warn" : ""; }
+function setMetric(id, value) { const number = Number.isFinite(value) ? value : null; setValue(id, number === null ? "Unknown" : `${number.toFixed(1)}%`, levelFor(number)); const bar = $("#" + id + "-bar"); bar.className = `bar ${levelFor(number)}`; bar.querySelector("i").style.width = number === null ? "0%" : `${Math.min(100, Math.max(0, number))}%`; }
+function renderPayload(result) {
+  const payload = result.payload;
+  if (!payload) return;
+  const network = payload.network || {}, battery = payload.battery || {}, node = payload.node || {};
+  setValue("active-route", network.active_route || "Unknown", network.active_route === "unknown" ? "neutral" : "good");
+  const reachability = value => value === "reachable" ? ["Reachable", "good"] : value === "unreachable" ? ["Unreachable", "bad"] : ["Unknown", "neutral"];
+  for (const [id, value] of [["starlink", network.starlink], ["dialog", network.dialog]]) { const [label, level] = reachability(value); setValue(id, label, level); }
+  const activity = battery.activity === "detected" ? ["Activity detected", "good"] : battery.activity === "not_detected" ? ["Not detected", "neutral"] : ["Unknown", "neutral"];
+  setValue("battery-activity", activity[0], activity[1]); $("#battery-detail").textContent = battery.percent === null || battery.percent === undefined ? "Battery telemetry unavailable" : `${battery.percent.toFixed(0)}%${battery.on_ac ? " · AC" : ""}`;
+  setMetric("cpu", payload.resources?.cpu_percent); setMetric("ram", payload.resources?.ram_percent); setMetric("disk", payload.resources?.disk_percent);
+  setValue("service-count", `${payload.services?.healthy ?? 0}/${payload.services?.total ?? 0} healthy`, payload.services?.healthy === payload.services?.total ? "good" : "warn");
+  const serviceMap = new Map((payload.services?.items || []).map(item => [item.name, item])); const list = $("#services"); list.replaceChildren();
+  for (const name of serviceNames) { const item = serviceMap.get(name) || {status:"unknown"}; const row = document.createElement("div"); row.className = "service"; const label = document.createElement("span"); label.className = "service-name"; label.textContent = name; const state = document.createElement("strong"); state.className = `service-status ${item.status}`; state.textContent = item.status.replace("_", " "); row.append(label, state); list.append(row); }
+  $("#node-name").textContent = node.id || "Server Monitor"; $("#uptime").textContent = formatUptime(node.uptime_seconds);
+}
+function renderConnection(result) {
+  const state = result.connection_state || "disconnected"; const bar = $("#connection-state"); bar.className = `statebar ${state}`;
+  const label = state === "live" ? "Connection live" : state === "stale" ? "Telemetry stale" : "Connection lost"; $("#connection-label").textContent = label; $("#connection-detail").textContent = result.received_at ? `Cloud receipt ${formatTime(result.received_at)}` : "No cloud heartbeat";
+  setValue("host-status", state === "live" ? "Online" : "Connection lost", state === "live" ? "good" : state === "stale" ? "warn" : "bad"); setValue("telemetry-status", state === "live" ? "Live" : state === "stale" ? "Stale" : "Disconnected", state === "live" ? "good" : state === "stale" ? "warn" : "bad"); $("#last-update").textContent = result.received_at ? formatTime(result.received_at) : "Never";
+}
+async function loadStatus() { const response = await fetch("/api/status", {cache:"no-store"}); if (response.status === 401) { loginView.classList.remove("hidden"); dashboardView.classList.add("hidden"); return; } if (!response.ok) throw new Error("Status unavailable"); const result = await response.json(); loginView.classList.add("hidden"); dashboardView.classList.remove("hidden"); renderConnection(result); renderPayload(result); }
+$("#login-form").addEventListener("submit", async event => { event.preventDefault(); $("#login-error").textContent = ""; const response = await fetch("/api/auth/login", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:$("#email").value,password:$("#password").value})}); if (!response.ok) { $("#login-error").textContent = "Sign-in failed."; return; } await loadStatus(); });
+$("#logout").addEventListener("click", async () => { await fetch("/api/auth/logout", {method:"POST"}); dashboardView.classList.add("hidden"); loginView.classList.remove("hidden"); });
+loadStatus().catch(() => { loginView.classList.remove("hidden"); dashboardView.classList.add("hidden"); });
+setInterval(() => loadStatus().catch(() => {}), 30000);
+</script>
+</body>
+</html>

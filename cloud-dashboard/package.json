@@ -1,0 +1,7 @@
+{
+  "name": "server-monitor-cloud-dashboard",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

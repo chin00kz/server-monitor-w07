@@ -106,6 +106,10 @@ For Docker Control v1, install `activity/docker_control.py`, `activity/server-do
 
 Refresh Now performs two authenticated actions: it samples application hardware metrics immediately, then submits a host request. The host collector serializes scheduled and manual runs with a bounded lock, collects live PostgreSQL, Docker, storage, and network data, writes the snapshot atomically, and acknowledges the matching request ID. Network probes are rate-limited during manual refreshes.
 
+## Optional cloud status
+
+The separate `cloud/` publisher and `cloud-dashboard/` Vercel project provide read-only external status without opening an Ubuntu port or exposing Docker access. The publisher reuses `data/activity/latest.json` and SQLite metrics, sends only a sanitized latest snapshot over outbound HTTPS, and fails independently from local monitoring. Because the existing local collectors do not expose an explicit battery-activity signal, the cloud dashboard reports that field as `Unknown` rather than inferring it. Deployment details are in [cloud/DEPLOYMENT.md](cloud/DEPLOYMENT.md).
+
 ## Security design
 
 - The dashboard is published only on the configured Tailscale address.
@@ -173,6 +177,17 @@ For maintenance, keep Docker images, Python dependencies, Ubuntu packages, and s
 │           └── login.html
 ├── compose.yml
 ├── compose.test.yml
+├── cloud/
+│   ├── publisher.py
+│   ├── DEPLOYMENT.md
+│   ├── supabase/schema.sql
+│   ├── server-monitor-cloud-publisher.service
+│   └── server-monitor-cloud-publisher.timer
+├── cloud-dashboard/
+│   ├── api/
+│   ├── lib/
+│   ├── public/index.html
+│   └── package.json
 ├── .env.example
 ├── tests/
 │   └── test_docker_control.py

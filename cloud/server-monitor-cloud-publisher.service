@@ -1,0 +1,18 @@
+[Unit]
+Description=Publish Server Monitor status to Supabase
+Documentation=https://github.com/chin00kz/server-monitor-w07
+
+[Service]
+Type=oneshot
+User=chinookz
+WorkingDirectory=/home/chinookz/homelab/docker/server-monitor
+EnvironmentFile=-/etc/server-monitor/cloud-publisher.env
+ExecStart=/usr/bin/python3 /home/chinookz/homelab/docker/server-monitor/cloud/publisher.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadOnlyPaths=/home/chinookz/homelab/docker/server-monitor/data
+TimeoutStartSec=20
