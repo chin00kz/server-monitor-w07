@@ -27,4 +27,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now server-docker-control.path
 ```
 
-The service runs as `chinookz` with only supplementary Docker-group access and is explicitly configured for `imfs-pg-m4`. Keep `server-monitor` excluded and do not add other containers to the allowlist without a separate review. The controller writes status to `data/docker-control/status.json` and audit records to `data/activity/docker-control.log`; both paths must be writable by `chinookz`. Docker control should be validated with a disposable container before any approved M4 test. No control action is required for normal dashboard operation.
+The service runs as `chinookz` with only supplementary Docker-group access and is explicitly configured for `homelab-test`. Keep `server-monitor` and all PostgreSQL containers excluded from control testing. The controller writes status to `data/docker-control/status.json` and audit records to `data/activity/docker-control.log`; both paths must be writable by `chinookz`. Validate Docker control with the disposable `homelab-test` configuration before any approved live test. No control action is required for normal dashboard operation.
+
+The reusable disposable test container is separate from production Compose:
+
+```sh
+docker compose -f compose.test.yml up -d
+docker compose -f compose.test.yml ps
+docker compose -f compose.test.yml down
+```
+
+It has no published ports, volumes, or restart policy. During testing, verify `homelab-test` state and health before control actions. Do not control or restart any PostgreSQL container or `server-monitor`.

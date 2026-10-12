@@ -20,7 +20,7 @@ services:
       HOST_SYS: /host/sys
       DB_PATH: /data/metrics.db
       SAMPLE_SECONDS: "15"
-      DOCKER_CONTROL_CONTAINERS: "${DOCKER_CONTROL_CONTAINERS:-imfs-pg-m4}"
+      DOCKER_CONTROL_CONTAINERS: "${DOCKER_CONTROL_CONTAINERS:-homelab-test}"
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     read_only: true
     tmpfs:

@@ -13,6 +13,7 @@ CONTAINERS = (
     "imfs-pg-m3",
     "imfs-pg-m4",
     "imfs-pg-integration",
+    "homelab-test",
 )
 
 

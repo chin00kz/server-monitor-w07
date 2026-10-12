@@ -30,7 +30,7 @@ MAX_LOG_BYTES = 32 * 1024
 
 
 def configured_containers():
-    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "imfs-pg-m4")
+    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "homelab-test")
     return {
         name.strip()
         for name in raw.split(",")

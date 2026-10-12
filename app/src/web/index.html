@@ -1762,7 +1762,8 @@ async function pollReliability(schedule = true){
       "imfs-pg-m2",
       "imfs-pg-m3",
       "imfs-pg-m4",
-      "imfs-pg-integration"
+      "imfs-pg-integration",
+      "homelab-test"
     ];
     const entries = monitoredContainers.map(name => [
       name,
@@ -1821,7 +1822,7 @@ async function pollReliability(schedule = true){
         const logOutput = document.createElement("pre");
         logPanel.append(logOutput);
         const buttons = [];
-        const authorized = name === "imfs-pg-m4";
+        const authorized = name === "homelab-test";
         const addControl = (action, enabled) => {
           const button = document.createElement("button");
           button.type = "button";

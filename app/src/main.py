@@ -202,7 +202,7 @@ class DockerControlRequest(BaseModel):
 
 
 def configured_docker_containers():
-    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "imfs-pg-m4")
+    raw = os.environ.get("DOCKER_CONTROL_CONTAINERS", "homelab-test")
     return {
         name.strip()
         for name in raw.split(",")
@@ -640,6 +640,7 @@ def reliability():
     expected = (
         "server-monitor", "imfs-pg-m1", "imfs-pg-m2",
         "imfs-pg-m3", "imfs-pg-m4", "imfs-pg-integration",
+        "homelab-test",
     )
     try:
         snapshot = json.loads(Path("/data/activity/latest.json").read_text())
