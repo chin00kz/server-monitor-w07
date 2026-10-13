@@ -1006,6 +1006,20 @@ canvas { opacity: .92; }
   .topbar-actions .refresh-btn { justify-content: center; }
 }
 
+.backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.backup-storage { margin-top: 14px; }
+.backup-progress { height: 8px; margin-top: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--panel-deep); }
+.backup-progress > span { display: block; width: 0; height: 100%; background: var(--green); transition: width .2s ease; }
+.backup-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.backup-state-successful { color: var(--green) !important; }
+.backup-state-failed { color: var(--red) !important; }
+.backup-state-running { color: var(--amber) !important; }
+.backup-state-unavailable { color: var(--mute) !important; }
+@media (max-width: 600px) {
+  .backup-grid { grid-template-columns: minmax(0, 1fr); }
+  .backup-actions { align-items: stretch; flex-direction: column; }
+}
+
 </style></head>
 <body>
 <div class="app-shell">
@@ -1226,6 +1240,40 @@ canvas { opacity: .92; }
   </div>
 </section>
 
+
+<section id="backups-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">DATA PROTECTION</div>
+      <h2>PostgreSQL Backups</h2>
+      <p>Local archive and Google Drive backup status</p>
+    </div>
+  </div>
+  <div class="maintenance-card">
+    <div class="maintenance-header">
+      <div>
+        <div class="maintenance-label">BACKUP STATUS</div>
+        <div class="maintenance-status" id="backup-status">Loading backup status…</div>
+      </div>
+      <span class="maintenance-badge" id="backup-badge">UNAVAILABLE</span>
+    </div>
+    <div class="maintenance-metrics backup-grid">
+      <div><span>Last Local Backup</span><strong id="backup-local">Loading…</strong></div>
+      <div><span>Last Cloud Backup</span><strong id="backup-cloud">Loading…</strong></div>
+    </div>
+    <div class="maintenance-metrics backup-storage">
+      <div>
+        <span>Google Drive Storage</span>
+        <strong id="backup-storage-text">Loading…</strong>
+        <div class="backup-progress" role="progressbar" aria-label="Google Drive storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="backup-storage-bar"></span></div>
+      </div>
+    </div>
+    <div class="backup-actions">
+      <button id="backup-now" class="refresh-btn" type="button">Backup Now</button>
+      <span id="backup-message" class="sub">Status is refreshed automatically.</span>
+    </div>
+  </div>
+</section>
 
 <section id="charts-section">
   <div class="section-heading">
@@ -1453,7 +1501,7 @@ class Chart{
   }
 }
 
-const PAGES=["overview","health","network","storage","databases","alerts"];
+const PAGES=["overview","health","network","storage","databases","alerts","backups"];
 let info={},m={},charts=[],built=false,page=(location.hash||"#overview").slice(1);
 const hours=()=>+$("#range").value;
 
@@ -1540,7 +1588,8 @@ function render(){
     network: "Network",
     storage: "Storage",
     databases: "Docker",
-    alerts: "Events"
+    alerts: "Events",
+    backups: "Backups"
   };
   if (!PAGES.includes(page)) page = "overview";
 
@@ -1568,6 +1617,7 @@ function render(){
   show("network-status-section", page === "network");
   show("postgres-health-section", page === "databases");
   show("alert-history-section", page === "alerts");
+  show("backups-section", page === "backups");
   show("charts-section", isCharts);
   show("stats", page === "overview", "grid");
 
@@ -2232,6 +2282,70 @@ async function pollNetworkUsage(schedule = true){
   }
 }
 
+function renderBackupStatus(data){
+  const state = ["running", "successful", "failed", "unavailable"].includes(data?.status) ? data.status : "unavailable";
+  const status = $("#backup-status"), badge = $("#backup-badge"), button = $("#backup-now");
+  status.textContent = state[0].toUpperCase() + state.slice(1);
+  status.className = `maintenance-status backup-state-${state}`;
+  badge.textContent = state.toUpperCase();
+  badge.className = `maintenance-badge backup-state-${state}`;
+  button.disabled = state === "running";
+
+  const renderTime = (selector, item) => {
+    const element = $(selector);
+    const itemState = ["successful", "failed"].includes(item?.status) ? item.status : "unavailable";
+    const timestamp = Number.isInteger(item?.timestamp) ? new Date(item.timestamp * 1000).toLocaleString() : "Unavailable";
+    element.textContent = itemState === "unavailable" ? "Unavailable" : `${itemState === "successful" ? "Successful" : "Failed"} · ${timestamp}`;
+    element.className = `backup-state-${itemState}`;
+  };
+  renderTime("#backup-local", data?.last_local);
+  renderTime("#backup-cloud", data?.last_cloud);
+
+  const storage = data?.storage || {};
+  const storageOk = storage.status === "ok" && Number.isFinite(storage.total) && storage.total > 0 && Number.isFinite(storage.used) && Number.isFinite(storage.free);
+  const units = value => {
+    const names = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let amount = value, index = 0;
+    while (amount >= 1024 && index < names.length - 1) { amount /= 1024; index++; }
+    return `${amount.toFixed(index > 2 ? 1 : 0)} ${names[index]}`;
+  };
+  const percent = storageOk ? Math.min(100, Math.max(0, storage.used / storage.total * 100)) : 0;
+  $("#backup-storage-text").textContent = storageOk ? `${units(storage.used)} used · ${units(storage.free)} free` : "Unavailable";
+  $("#backup-storage-bar").style.width = `${percent}%`;
+  $(".backup-progress").setAttribute("aria-valuenow", String(Math.round(percent)));
+  $("#backup-message").textContent = data?.message || "Backup status is unavailable";
+}
+
+async function pollBackups(schedule = true){
+  try {
+    const response = await fetch("/api/backups", {cache: "no-store"});
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error("Backup status unavailable");
+    renderBackupStatus(await response.json());
+  } catch (error) {
+    renderBackupStatus({status: "unavailable", message: "Backup status is unavailable"});
+  } finally {
+    if (schedule) setTimeout(() => pollBackups(true), 10000);
+  }
+}
+
+$("#backup-now").addEventListener("click", async () => {
+  if (!confirm("Start the existing PostgreSQL backup and Google Drive upload now?")) return;
+  const button = $("#backup-now");
+  button.disabled = true;
+  $("#backup-message").textContent = "Queuing backup…";
+  try {
+    const response = await fetch("/api/backups/run", {method: "POST"});
+    const data = await response.json();
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error(data.detail || "Backup request failed");
+    renderBackupStatus(data);
+  } catch (error) {
+    $("#backup-message").textContent = error.message || "Backup request failed";
+    button.disabled = false;
+  }
+});
+
 async function poll(schedule = true){
   try{
     const r=await fetch("/api/now");
@@ -2308,7 +2422,8 @@ async function triggerRefresh(){
     pollReliability(false),
     pollPostgresHealth(),
     pollAlertHistory(),
-    pollNetworkUsage(false)
+    pollNetworkUsage(false),
+    pollBackups(false)
   ]);
 
   const failedChecks = checkResults.filter(r => r.status === "rejected");
@@ -2365,6 +2480,7 @@ pollReliability();
 pollAlertHistory();
 pollPostgresHealth();
 pollNetworkUsage();
+pollBackups();
 $("#range").value=localStorage.getItem("sm_range")||"6";
 $("#range").onchange=()=>{localStorage.setItem("sm_range",$("#range").value);charts.forEach(c=>c.load(hours()))};
 $("#out").onclick=async()=>{await fetch("/api/logout",{method:"POST"});location="/login"};

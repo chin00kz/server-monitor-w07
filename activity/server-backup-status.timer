@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Server Monitor backup status
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=60s
+Unit=server-backup-control.service
+
+[Install]
+WantedBy=timers.target

@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from activity_snapshot import load_activity_snapshot
+from backup_status import load_backup_status
 import store
 from host import PROC, SYS, Collector
 
@@ -197,6 +198,10 @@ DOCKER_CONTROL_EXCLUDED = {"server-monitor"}
 DOCKER_CONTROL_LOG_ONLY = {"server-monitor"}
 last_docker_action_time: dict[str, float] = {}
 docker_control_lock = threading.Lock()
+BACKUP_CONTROL_ROOT = Path("/data/backup-control")
+BACKUP_CONTROL_REQUEST = BACKUP_CONTROL_ROOT / "request.json"
+BACKUP_CONTROL_STATUS = BACKUP_CONTROL_ROOT / "status.json"
+backup_control_lock = threading.Lock()
 
 
 class DockerControlRequest(BaseModel):
@@ -234,6 +239,42 @@ def read_control_status():
         return value if isinstance(value, dict) else None
     except (OSError, ValueError, TypeError):
         return None
+
+
+@app.get("/api/backups", dependencies=[Depends(require_login)])
+def backup_status():
+    """Return validated status produced by the restricted host controller."""
+    return load_backup_status(BACKUP_CONTROL_STATUS, int(time.time()))
+
+
+@app.post("/api/backups/run", dependencies=[Depends(require_management)])
+def run_backup():
+    """Queue the fixed host backup script; no browser-supplied command is accepted."""
+    now = int(time.time())
+    with backup_control_lock:
+        if BACKUP_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a backup is already queued")
+        current = load_backup_status(BACKUP_CONTROL_STATUS, now)
+        if current["status"] == "running":
+            raise HTTPException(409, "a backup is already running")
+
+        request = {
+            "request_id": secrets.token_hex(16),
+            "action": "backup",
+            "created_at": now,
+        }
+        running = {
+            "status": "running",
+            "timestamp": now,
+            "message": "Backup request queued",
+            "request_id": request["request_id"],
+            "last_local": current["last_local"],
+            "last_cloud": current["last_cloud"],
+            "storage": current["storage"],
+        }
+        write_control_json(BACKUP_CONTROL_STATUS, running)
+        write_control_json(BACKUP_CONTROL_REQUEST, request)
+    return running
 
 
 @app.post("/api/refresh", dependencies=[Depends(require_login)])

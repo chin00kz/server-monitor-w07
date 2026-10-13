@@ -38,3 +38,19 @@ docker compose -f compose.test.yml down
 ```
 
 It has no published ports, volumes, or restart policy. During testing, verify `homelab-test` state and health before control actions. Do not perform live PostgreSQL or `server-monitor` state changes until explicitly approved.
+
+## Backup status and manual backup control
+
+The dashboard does not receive host filesystem access or the rclone configuration. A restricted host-side controller reads the existing backup folders, verifies both `SUCCESS` and `manifest.txt` in Google Drive, reads quota with `rclone about gdrive:`, and invokes only the existing fixed backup script. Install it during an approved maintenance window:
+
+```sh
+sudo install -m 0755 activity/backup_control.py /home/chinookz/homelab/docker/server-monitor/activity/backup_control.py
+sudo install -m 0644 activity/server-backup-control.service /etc/systemd/system/server-backup-control.service
+sudo install -m 0644 activity/server-backup-control.path /etc/systemd/system/server-backup-control.path
+sudo install -m 0644 activity/server-backup-status.timer /etc/systemd/system/server-backup-status.timer
+sudo install -d -o chinookz -g chinookz -m 775 data/backup-control
+sudo systemctl daemon-reload
+sudo systemctl enable --now server-backup-control.path server-backup-status.timer
+```
+
+The controller runs as `chinookz`, so it reuses that account's existing rclone configuration without exposing it to the dashboard container. Status refreshes run once per minute. Manual requests are serialized by the controller lock, reject an already-running `backup.sh` process, and invoke the fixed script through `flock` at `backups/.server-monitor-backup.lock`. The existing cron schedule, backup script, PostgreSQL containers, rclone configuration, and Drive contents are not changed by this integration.

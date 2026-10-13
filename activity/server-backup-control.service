@@ -1,0 +1,17 @@
+[Unit]
+Description=Restricted Server Monitor backup controller
+Documentation=https://github.com/chin00kz/server-monitor-w07
+
+[Service]
+Type=oneshot
+User=chinookz
+WorkingDirectory=/home/chinookz/homelab/docker/server-monitor
+Environment=SERVER_MONITOR_DATA=/home/chinookz/homelab/docker/server-monitor/data
+ExecStart=/usr/bin/python3 /home/chinookz/homelab/docker/server-monitor/activity/backup_control.py
+TimeoutStartSec=2h10m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
