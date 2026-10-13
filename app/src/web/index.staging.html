@@ -1137,14 +1137,21 @@ async function pollActivity(){
 
     const dbs = Object.values(d.databases);
     if (dbs.length !== 5 || dbs.some(x =>
-        !Number.isInteger(x.total) || !Number.isInteger(x.active) ||
-        !Number.isInteger(x.idle_in_transaction))) {
+        !x || !["ok", "unknown"].includes(x.status))) {
       throw new Error("Incomplete activity data");
     }
 
-    const total = dbs.reduce((sum, x) => sum + x.total, 0);
-    const active = dbs.reduce((sum, x) => sum + x.active, 0);
-    const transactions = dbs.reduce((sum, x) =>
+    const availableDbs = dbs.filter(x => x.status === "ok");
+    if (availableDbs.some(x =>
+        !Number.isInteger(x.total) || x.total < 0 ||
+        !Number.isInteger(x.active) || x.active < 0 ||
+        !Number.isInteger(x.idle_in_transaction) || x.idle_in_transaction < 0)) {
+      throw new Error("Invalid activity data");
+    }
+    const unavailableDbCount = dbs.length - availableDbs.length;
+    const total = availableDbs.reduce((sum, x) => sum + x.total, 0);
+    const active = availableDbs.reduce((sum, x) => sum + x.active, 0);
+    const transactions = availableDbs.reduce((sum, x) =>
       sum + x.idle_in_transaction, 0);
 
     const sessions = d.sessions || {};
@@ -1239,7 +1246,10 @@ async function pollActivity(){
         : "Network status unavailable or incomplete. Internet reachability cannot be confirmed.";
     }
 
-    count.textContent = `${total} connection${total === 1 ? "" : "s"} · ${active} active`;
+    count.textContent = availableDbs.length
+      ? `${total} connection${total === 1 ? "" : "s"} · ${active} active` +
+        (unavailableDbCount ? ` · ${unavailableDbCount} unavailable` : "")
+      : "Unknown";
     freshness.textContent = `${d.age_seconds}s ago`;
 
     const activityDetected =
@@ -1252,7 +1262,7 @@ async function pollActivity(){
       badge.textContent = "ACTIVITY DETECTED";
       note.textContent =
         "One or more database connections, SSH connections, or local sessions are present. Session counts do not prove someone is actively working. Confirm with teammates before maintenance.";
-    } else if (sshValid && localValid) {
+    } else if (unavailableDbCount === 0 && sshValid && localValid) {
       statusText.textContent = "No activity observed";
       badge.textContent = "NO ACTIVITY OBSERVED";
       note.textContent =
@@ -1261,7 +1271,7 @@ async function pollActivity(){
       statusText.textContent = "Activity status incomplete";
       badge.textContent = "UNKNOWN";
       note.textContent =
-        "No activity was detected in the available readings, but one or more session checks are unavailable. Do not assume the workstation is idle.";
+        "No activity was detected in the available readings, but one or more database or session checks are unavailable. Do not assume the workstation is idle.";
     }
   } catch (e) {
     for (const id of [

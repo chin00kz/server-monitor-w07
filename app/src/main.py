@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
+from activity_snapshot import load_activity_snapshot
 import store
 from host import PROC, SYS, Collector
 
@@ -25,6 +26,7 @@ WEB = Path(__file__).parent / "web"
 SESSION_TTL, MAX_FAILS, FAIL_WINDOW = 7 * 86400, 5, 900
 SAMPLE_SECONDS = int(os.environ.get("SAMPLE_SECONDS", "15"))
 KEY_RE = re.compile(r"^[a-z0-9_.]{1,64}$")
+ACTIVITY_SNAPSHOT = Path("/data/activity/latest.json")
 
 latest = {"ts": None, "m": {}, "info": {}}
 ph = PasswordHasher()
@@ -360,38 +362,13 @@ def docker_control(body: DockerControlRequest):
 
 @app.get("/api/activity", dependencies=[Depends(require_login)])
 def activity():
-    """Return sanitized PostgreSQL activity, rejecting stale snapshots."""
-    path = Path("/data/activity/latest.json")
+    """Return sanitized activity, rejecting stale or malformed snapshots."""
     now_ts = int(time.time())
 
     try:
-        snapshot = json.loads(path.read_text())
-        timestamp = int(snapshot["timestamp"])
-        databases = snapshot["databases"]
-
-        age = now_ts - timestamp
-        expected = {
-            "imfs-pg-m1", "imfs-pg-m2", "imfs-pg-m3",
-            "imfs-pg-m4", "imfs-pg-integration",
-        }
-
-        if age < 0 or age > 90 or set(databases) != expected:
-            raise ValueError("stale or incomplete snapshot")
-
-        safe_databases = {}
-        for name in sorted(expected):
-            item = databases[name]
-            if item.get("status") != "ok":
-                raise ValueError("database check unavailable")
-
-            counts = {}
-            for key in ("active", "idle", "idle_in_transaction", "other", "total"):
-                value = item.get(key)
-                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                    raise ValueError("invalid activity count")
-                counts[key] = value
-
-            safe_databases[name] = counts
+        snapshot, timestamp, age, safe_databases = load_activity_snapshot(
+            ACTIVITY_SNAPSHOT, now_ts
+        )
 
         sessions = snapshot.get("sessions")
         if not isinstance(sessions, dict):
