@@ -45,7 +45,7 @@ The dashboard container and host collector share `data/`. The container writes a
 
 Docker control uses a separate host-side controller and request/response files under `data/docker-control/`. The dashboard never receives Docker socket access. The controller runs with narrowly scoped Docker-group access, accepts only configured names and fixed actions, excludes `server-monitor`, serializes requests, limits logs, and records outcomes in `data/activity/docker-control.log`.
 
-Backup status and manual backup requests use the same host-controller pattern under `data/backup-control/`. The dashboard can only queue the fixed existing backup script; backup paths, commands, rclone credentials, and destinations are never accepted from or exposed to the browser.
+Backup status, manual backup requests, and temporary local-backup ZIP downloads use the same host-controller pattern under `data/backup-control/`. The dashboard can only queue the fixed existing backup script or select a validated timestamp-named backup; arbitrary paths, commands, rclone credentials, and destinations are never accepted from or exposed to the browser.
 
 ## Ubuntu deployment
 

@@ -52,6 +52,17 @@ except ImportError:
     class Response:
         pass
 
+    class FileResponse:
+        def __init__(self, path, **kwargs):
+            self.path = str(path)
+            self.filename = kwargs.get("filename")
+            self.background = kwargs.get("background")
+
+    class JSONResponse:
+        def __init__(self, status_code, content):
+            self.status_code = status_code
+            self.content = content
+
     class Route:
         def __init__(self, path, dependencies):
             self.path = path
@@ -78,10 +89,26 @@ except ImportError:
     fastapi_module.HTTPException = HTTPException
     fastapi_module.Request = Request
     fastapi_module.Response = Response
-    responses_module.FileResponse = object
+    responses_module.FileResponse = FileResponse
+    responses_module.JSONResponse = JSONResponse
     responses_module.RedirectResponse = object
     sys.modules["fastapi"] = fastapi_module
     sys.modules["fastapi.responses"] = responses_module
+
+try:
+    from starlette.background import BackgroundTask  # noqa: F401
+except ImportError:
+    starlette_module = types.ModuleType("starlette")
+    background_module = types.ModuleType("starlette.background")
+
+    class BackgroundTask:
+        def __init__(self, function, *args):
+            self.function = function
+            self.args = args
+
+    background_module.BackgroundTask = BackgroundTask
+    sys.modules["starlette"] = starlette_module
+    sys.modules["starlette.background"] = background_module
 
 try:
     import pydantic  # noqa: F401
@@ -109,6 +136,14 @@ class BackupApiTests(unittest.TestCase):
             routes["/api/backups/run"].dependant.dependencies[0].call,
             main.require_management,
         )
+        self.assertIs(
+            routes["/api/backups/{backup_name}/archive"].dependant.dependencies[0].call,
+            main.require_management,
+        )
+        self.assertIs(
+            routes["/api/backups/archive/{request_id}"].dependant.dependencies[0].call,
+            main.require_login,
+        )
 
     def test_manual_endpoint_writes_only_fixed_backup_request(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -132,6 +167,68 @@ class BackupApiTests(unittest.TestCase):
             self.assertEqual(result["status"], "running")
             self.assertNotIn("command", request)
             self.assertNotIn("path", request)
+
+    def test_archive_endpoint_queues_only_a_valid_listed_folder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            request_path = root / "request.json"
+            status_path = root / "status.json"
+            archive_status_root = root / "archive-status"
+            status_path.write_text(json.dumps({
+                "status": "successful",
+                "timestamp": 2_000_000_000,
+                "message": "ok",
+                "backups": [{
+                    "name": "2026-10-13_224152",
+                    "timestamp": 1_999_999_900,
+                }],
+            }))
+            with (
+                patch.object(main, "BACKUP_CONTROL_REQUEST", request_path),
+                patch.object(main, "BACKUP_CONTROL_STATUS", status_path),
+                patch.object(main, "BACKUP_ARCHIVE_STATUS_ROOT", archive_status_root),
+                patch.object(main.time, "time", return_value=2_000_000_000),
+                patch.object(main.secrets, "token_hex", return_value="e" * 32),
+            ):
+                result = main.request_backup_archive("2026-10-13_224152")
+
+            request = json.loads(request_path.read_text())
+            self.assertEqual(request["action"], "archive")
+            self.assertEqual(request["backup_name"], "2026-10-13_224152")
+            self.assertEqual(result, {"request_id": "e" * 32, "status": "queued"})
+
+    def test_archive_endpoint_rejects_traversal_name(self):
+        with self.assertRaises(main.HTTPException) as error:
+            main.request_backup_archive("../../etc")
+        self.assertEqual(error.exception.status_code, 400)
+
+    def test_completed_archive_download_uses_fixed_request_id_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archives = root / "archives"
+            statuses = root / "archive-status"
+            archives.mkdir()
+            statuses.mkdir()
+            request_id = "f" * 32
+            archive = archives / f"{request_id}.zip"
+            archive.write_bytes(b"zip content")
+            (statuses / f"{request_id}.json").write_text(json.dumps({
+                "request_id": request_id,
+                "status": "completed",
+                "message": "ready",
+                "backup_name": "2026-10-13_224152",
+                "timestamp": 2_000_000_000,
+            }))
+            with (
+                patch.object(main, "BACKUP_ARCHIVE_ROOT", archives),
+                patch.object(main, "BACKUP_ARCHIVE_STATUS_ROOT", statuses),
+                patch.object(main.time, "time", return_value=2_000_000_010),
+            ):
+                response = main.download_backup_archive(request_id)
+
+            self.assertEqual(Path(response.path), archive)
+            self.assertEqual(response.filename, "2026-10-13_224152.zip")
+            self.assertIsNotNone(response.background)
 
 
 if __name__ == "__main__":

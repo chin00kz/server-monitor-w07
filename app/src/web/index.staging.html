@@ -722,6 +722,19 @@ canvas { max-width: 100%; }
 .backup-state-failed { color: var(--red) !important; }
 .backup-state-running { color: var(--amber) !important; }
 .backup-state-unavailable { color: var(--mute) !important; }
+.backup-files-card { margin-top: 18px; overflow: hidden; }
+.backup-files-heading { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.backup-files-heading h3 { margin: 0; font-size: 1rem; font-weight: 650; }
+.backup-files-heading p { margin: 5px 0 0; color: var(--mute); font-size: .74rem; }
+.backup-files-table { width: 100%; border-collapse: collapse; }
+.backup-files-table th, .backup-files-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+.backup-files-table th { color: var(--mute); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase; }
+.backup-files-table td { color: var(--soft); font-family: Consolas, monospace; font-size: .79rem; }
+.backup-files-table th:last-child, .backup-files-table td:last-child { width: 84px; text-align: center; }
+.backup-download { min-width: 34px; min-height: 30px; border: 1px solid var(--line); color: var(--acc-soft); font-size: 1rem; }
+.backup-download:hover:not(:disabled) { border-color: var(--acc); background: rgba(242, 140, 40, .1); }
+.backup-download:disabled { cursor: wait; opacity: .55; }
+.backup-files-empty { padding: 18px 10px; color: var(--mute); font-size: .78rem; }
 @media (max-width: 600px) {
   .backup-grid { grid-template-columns: minmax(0, 1fr); }
   .backup-actions { align-items: stretch; flex-direction: column; }
@@ -939,6 +952,19 @@ canvas { max-width: 100%; }
       <button id="backup-now" type="button">Backup Now</button>
       <span id="backup-message" class="sub">Status is refreshed automatically.</span>
     </div>
+  </div>
+  <div class="maintenance-card backup-files-card">
+    <div class="backup-files-heading">
+      <h3>Local Backup Files</h3>
+      <p>Download a complete backup folder as a temporary ZIP archive</p>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="backup-files-table">
+        <thead><tr><th>Name</th><th>Date</th><th>Download</th></tr></thead>
+        <tbody id="backup-files-body"><tr><td colspan="3">Loading local backups…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="backup-files-message" class="backup-files-empty" hidden></div>
   </div>
 </section>
 
@@ -1739,6 +1765,77 @@ async function pollNetworkUsage(){
   setTimeout(pollNetworkUsage, 60000);
 }
 
+async function downloadLocalBackup(name, button){
+  const message = $("#backup-files-message");
+  button.disabled = true;
+  message.hidden = false;
+  message.textContent = `Preparing ${name}.zip…`;
+  try {
+    const queued = await fetch(`/api/backups/${encodeURIComponent(name)}/archive`, {method: "POST"});
+    const queuedData = await queued.json();
+    if (queued.status === 401) { location = "/login"; return; }
+    if (!queued.ok) throw new Error(queuedData.detail || "Archive request failed");
+
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const response = await fetch(`/api/backups/archive/${queuedData.request_id}`, {cache: "no-store"});
+      if (response.status === 401) { location = "/login"; return; }
+      if (response.status === 202) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Archive download failed");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${name}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message.textContent = `${name}.zip downloaded.`;
+      return;
+    }
+    throw new Error("Archive creation timed out");
+  } catch (error) {
+    message.textContent = error.message || "Archive download failed";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderBackupFiles(backups){
+  const body = $("#backup-files-body");
+  const message = $("#backup-files-message");
+  body.replaceChildren();
+  if (!Array.isArray(backups) || backups.length === 0) {
+    message.hidden = false;
+    message.textContent = "No local backup folders are available.";
+    return;
+  }
+  message.hidden = true;
+  for (const backup of backups) {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    const date = document.createElement("td");
+    const action = document.createElement("td");
+    const button = document.createElement("button");
+    name.textContent = backup.name;
+    date.textContent = new Date(backup.timestamp * 1000).toLocaleString();
+    button.type = "button";
+    button.className = "backup-download";
+    button.textContent = "↓";
+    button.title = `Download ${backup.name} as ZIP`;
+    button.setAttribute("aria-label", button.title);
+    button.addEventListener("click", () => downloadLocalBackup(backup.name, button));
+    action.appendChild(button);
+    row.append(name, date, action);
+    body.appendChild(row);
+  }
+}
+
 function renderBackupStatus(data){
   const state = ["running", "successful", "failed", "unavailable"].includes(data?.status) ? data.status : "unavailable";
   const status = $("#backup-status"), badge = $("#backup-badge"), button = $("#backup-now");
@@ -1771,6 +1868,7 @@ function renderBackupStatus(data){
   $("#backup-storage-bar").style.width = `${percent}%`;
   $(".backup-progress").setAttribute("aria-valuenow", String(Math.round(percent)));
   $("#backup-message").textContent = data?.message || "Backup status is unavailable";
+  renderBackupFiles(data?.backups);
 }
 
 async function pollBackups(){

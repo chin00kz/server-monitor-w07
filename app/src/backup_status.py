@@ -13,6 +13,7 @@ def unavailable_status():
         "last_local": {"status": "unavailable", "timestamp": None},
         "last_cloud": {"status": "unavailable", "timestamp": None},
         "storage": {"status": "unavailable", "total": None, "used": None, "free": None},
+        "backups": [],
     }
 
 
@@ -40,6 +41,28 @@ def load_backup_status(path, now_ts):
             message if isinstance(message, str) and 0 < len(message) <= 200
             else "Backup status updated"
         )
+
+        backups = source.get("backups")
+        if isinstance(backups, list):
+            safe_backups = []
+            for item in backups[:100]:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                created = item.get("timestamp")
+                if (
+                    isinstance(name, str)
+                    and len(name) == 17
+                    and name[4] == name[7] == "-"
+                    and name[10] == "_"
+                    and name.replace("-", "").replace("_", "").isdigit()
+                    and type(created) is int
+                    and 0 < created <= now_ts
+                ):
+                    safe_backups.append({"name": name, "timestamp": created})
+            result["backups"] = sorted(
+                safe_backups, key=lambda item: item["name"], reverse=True
+            )
 
         for key in ("last_local", "last_cloud"):
             item = source.get(key)

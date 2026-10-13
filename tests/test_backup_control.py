@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
@@ -23,6 +24,22 @@ class BackupControlTests(unittest.TestCase):
                 self.assertEqual(backup_control.read_request()["action"], "backup")
                 request.write_text(json.dumps({
                     "request_id": "a" * 32, "action": "shell",
+                }))
+                self.assertIsNone(backup_control.read_request())
+
+                request.write_text(json.dumps({
+                    "request_id": "a" * 32,
+                    "action": "archive",
+                    "backup_name": "2026-10-13_224152",
+                }))
+                self.assertEqual(
+                    backup_control.read_request()["backup_name"],
+                    "2026-10-13_224152",
+                )
+                request.write_text(json.dumps({
+                    "request_id": "a" * 32,
+                    "action": "archive",
+                    "backup_name": "../../etc",
                 }))
                 self.assertIsNone(backup_control.read_request())
 
@@ -97,6 +114,46 @@ class BackupControlTests(unittest.TestCase):
         collect_status.assert_called_once_with(
             "failed", "A scheduled or manual backup is already running", "c" * 32
         )
+
+    def test_archive_contains_complete_folder_and_nested_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "backups"
+            source = root / "2026-10-13_224152"
+            nested = source / "database"
+            nested.mkdir(parents=True)
+            (source / "SUCCESS").write_text("ok")
+            (source / "manifest.txt").write_text("manifest")
+            (nested / "dump.sql").write_text("select 1;")
+            control = Path(directory) / "control"
+            archives = control / "archives"
+            statuses = control / "archive-status"
+            request = {
+                "request_id": "d" * 32,
+                "action": "archive",
+                "backup_name": source.name,
+            }
+
+            with (
+                patch.object(backup_control, "BACKUP_ROOT", root),
+                patch.object(backup_control, "ARCHIVE_ROOT", archives),
+                patch.object(backup_control, "ARCHIVE_STATUS_ROOT", statuses),
+            ):
+                backup_control.create_archive(request)
+
+            archive_path = archives / f'{request["request_id"]}.zip'
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(set(archive.namelist()), {
+                    "2026-10-13_224152/SUCCESS",
+                    "2026-10-13_224152/manifest.txt",
+                    "2026-10-13_224152/database/",
+                    "2026-10-13_224152/database/dump.sql",
+                })
+            status = json.loads((statuses / f'{request["request_id"]}.json').read_text())
+            self.assertEqual(status["status"], "completed")
+
+    def test_safe_backup_folder_rejects_traversal(self):
+        with self.assertRaises(ValueError):
+            backup_control.safe_backup_folder("../../etc")
 
 
 if __name__ == "__main__":

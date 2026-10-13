@@ -30,6 +30,11 @@ class BackupStatusTests(unittest.TestCase):
             "last_local": {"status": "successful", "timestamp": NOW - 60},
             "last_cloud": {"status": "successful", "timestamp": NOW - 50},
             "storage": {"status": "ok", "total": 1000, "used": 400, "free": 600},
+            "backups": [
+                {"name": "2026-10-12_020000", "timestamp": NOW - 200},
+                {"name": "2026-10-13_020000", "timestamp": NOW - 100},
+                {"name": "../../etc", "timestamp": NOW - 50},
+            ],
         })
 
         result = load_backup_status(path, NOW)
@@ -38,6 +43,10 @@ class BackupStatusTests(unittest.TestCase):
         self.assertEqual(result["last_local"]["timestamp"], NOW - 60)
         self.assertEqual(result["last_cloud"]["status"], "successful")
         self.assertEqual(result["storage"]["free"], 600)
+        self.assertEqual(
+            [item["name"] for item in result["backups"]],
+            ["2026-10-13_020000", "2026-10-12_020000"],
+        )
 
     def test_missing_malformed_and_stale_status_fail_closed(self):
         missing = Path(tempfile.gettempdir()) / "server-monitor-missing-backup-status.json"
@@ -63,6 +72,7 @@ class BackupStatusTests(unittest.TestCase):
         self.assertEqual(result["last_local"]["status"], "successful")
         self.assertEqual(result["last_cloud"]["status"], "unavailable")
         self.assertEqual(result["storage"]["status"], "unavailable")
+        self.assertEqual(result["backups"], [])
 
 
 if __name__ == "__main__":

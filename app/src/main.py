@@ -14,8 +14,9 @@ from zoneinfo import ZoneInfo
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from activity_snapshot import load_activity_snapshot
 from backup_status import load_backup_status
@@ -201,6 +202,10 @@ docker_control_lock = threading.Lock()
 BACKUP_CONTROL_ROOT = Path("/data/backup-control")
 BACKUP_CONTROL_REQUEST = BACKUP_CONTROL_ROOT / "request.json"
 BACKUP_CONTROL_STATUS = BACKUP_CONTROL_ROOT / "status.json"
+BACKUP_ARCHIVE_ROOT = BACKUP_CONTROL_ROOT / "archives"
+BACKUP_ARCHIVE_STATUS_ROOT = BACKUP_CONTROL_ROOT / "archive-status"
+BACKUP_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
+BACKUP_REQUEST_RE = re.compile(r"^[a-f0-9]{32}$")
 backup_control_lock = threading.Lock()
 
 
@@ -275,6 +280,93 @@ def run_backup():
         write_control_json(BACKUP_CONTROL_STATUS, running)
         write_control_json(BACKUP_CONTROL_REQUEST, request)
     return running
+
+
+@app.post(
+    "/api/backups/{backup_name}/archive",
+    dependencies=[Depends(require_management)],
+)
+def request_backup_archive(backup_name: str):
+    """Queue creation of one validated backup ZIP on the host."""
+    if not BACKUP_NAME_RE.fullmatch(backup_name):
+        raise HTTPException(400, "invalid backup name")
+
+    now = int(time.time())
+    with backup_control_lock:
+        if BACKUP_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a backup operation is already queued")
+        current = load_backup_status(BACKUP_CONTROL_STATUS, now)
+        available = {item["name"] for item in current.get("backups", [])}
+        if backup_name not in available:
+            raise HTTPException(404, "backup folder is unavailable")
+
+        request_id = secrets.token_hex(16)
+        request = {
+            "request_id": request_id,
+            "action": "archive",
+            "backup_name": backup_name,
+            "created_at": now,
+        }
+        write_control_json(BACKUP_ARCHIVE_STATUS_ROOT / f"{request_id}.json", {
+            "request_id": request_id,
+            "status": "queued",
+            "message": "ZIP archive queued",
+            "backup_name": backup_name,
+            "timestamp": now,
+        })
+        write_control_json(BACKUP_CONTROL_REQUEST, request)
+    return {"request_id": request_id, "status": "queued"}
+
+
+def remove_download(path: Path, status_path: Path):
+    for target in (path, status_path):
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+
+@app.get(
+    "/api/backups/archive/{request_id}",
+    dependencies=[Depends(require_login)],
+)
+def download_backup_archive(request_id: str):
+    """Return a completed temporary archive and remove it after transfer."""
+    if not BACKUP_REQUEST_RE.fullmatch(request_id):
+        raise HTTPException(400, "invalid archive request")
+    status_path = BACKUP_ARCHIVE_STATUS_ROOT / f"{request_id}.json"
+    try:
+        status = json.loads(status_path.read_text())
+        if not isinstance(status, dict) or status.get("request_id") != request_id:
+            raise ValueError("invalid archive status")
+        state = status.get("status")
+        backup_name = status.get("backup_name")
+        timestamp = status.get("timestamp")
+        if (
+            state not in {"queued", "running", "completed", "failed"}
+            or not isinstance(backup_name, str)
+            or not BACKUP_NAME_RE.fullmatch(backup_name)
+            or type(timestamp) is not int
+            or int(time.time()) - timestamp > 3600
+        ):
+            raise ValueError("invalid archive status")
+    except (OSError, ValueError, TypeError, KeyError):
+        raise HTTPException(404, "archive request is unavailable")
+
+    if state in {"queued", "running"}:
+        return JSONResponse(status_code=202, content={"status": state})
+    if state == "failed":
+        raise HTTPException(500, "backup archive could not be created")
+
+    archive = BACKUP_ARCHIVE_ROOT / f"{request_id}.zip"
+    if archive.is_symlink() or not archive.is_file():
+        raise HTTPException(404, "backup archive is unavailable")
+    return FileResponse(
+        archive,
+        media_type="application/zip",
+        filename=f"{backup_name}.zip",
+        background=BackgroundTask(remove_download, archive, status_path),
+    )
 
 
 @app.post("/api/refresh", dependencies=[Depends(require_login)])

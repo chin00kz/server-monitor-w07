@@ -7,6 +7,7 @@ import re
 import subprocess
 import tempfile
 import time
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,8 @@ CONTROL_ROOT = DATA_ROOT / "backup-control"
 REQUEST_FILE = CONTROL_ROOT / "request.json"
 STATUS_FILE = CONTROL_ROOT / "status.json"
 LOCK_FILE = CONTROL_ROOT / ".controller.lock"
+ARCHIVE_ROOT = CONTROL_ROOT / "archives"
+ARCHIVE_STATUS_ROOT = CONTROL_ROOT / "archive-status"
 BACKUP_SCRIPT = Path("/home/chinookz/homelab/docker/imfs-db/backup.sh")
 BACKUP_ROOT = Path("/home/chinookz/homelab/docker/imfs-db/backups")
 BACKUP_LOCK = BACKUP_ROOT / ".server-monitor-backup.lock"
@@ -31,6 +34,7 @@ RCLONE_BIN = "/usr/bin/rclone"
 RCLONE_CONFIG = "/home/chinookz/.config/rclone/rclone.conf"
 RCLONE_REMOTE = "gdrive:IMFS-Backups/"
 REQUEST_RE = re.compile(r"^[a-f0-9]{32}$")
+BACKUP_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
 
 
 def atomic_write(path, payload):
@@ -55,8 +59,13 @@ def read_request():
         request_id = value.get("request_id")
         if not isinstance(request_id, str) or not REQUEST_RE.fullmatch(request_id):
             raise ValueError("invalid request ID")
-        if value.get("action") != "backup":
+        action = value.get("action")
+        if action not in {"backup", "archive"}:
             raise ValueError("unsupported backup action")
+        if action == "archive":
+            name = value.get("backup_name")
+            if not isinstance(name, str) or not BACKUP_NAME_RE.fullmatch(name):
+                raise ValueError("invalid backup name")
         return value
     except (OSError, ValueError, TypeError, KeyError):
         return None
@@ -76,6 +85,30 @@ def local_status():
         }
     except OSError:
         return {"status": "unavailable", "timestamp": None, "name": None}
+
+
+def list_local_backups():
+    backups = []
+    try:
+        root = BACKUP_ROOT.resolve(strict=True)
+        for item in BACKUP_ROOT.iterdir():
+            if (
+                not BACKUP_NAME_RE.fullmatch(item.name)
+                or item.is_symlink()
+                or not item.is_dir()
+                or item.resolve(strict=True).parent != root
+            ):
+                continue
+            try:
+                created = int(datetime.strptime(
+                    item.name, "%Y-%m-%d_%H%M%S"
+                ).astimezone().timestamp())
+            except ValueError:
+                continue
+            backups.append({"name": item.name, "timestamp": created})
+    except OSError:
+        return []
+    return sorted(backups, key=lambda item: item["name"], reverse=True)[:100]
 
 
 def parse_rclone_time(value):
@@ -162,6 +195,7 @@ def collect_status(status=None, message=None, request_id=None):
         "last_local": local,
         "last_cloud": cloud,
         "storage": storage,
+        "backups": list_local_backups(),
     }
     if request_id:
         payload["request_id"] = request_id
@@ -194,6 +228,7 @@ def run_backup(request):
         "last_local": before,
         "last_cloud": {"status": "unavailable", "timestamp": None, "name": None},
         "storage": {"status": "unavailable", "total": None, "used": None, "free": None},
+        "backups": list_local_backups(),
     })
     try:
         result = subprocess.run(
@@ -217,6 +252,87 @@ def run_backup(request):
     return collect_status("failed", "Backup did not complete locally and in Google Drive", request_id)
 
 
+def archive_status_path(request_id):
+    return ARCHIVE_STATUS_ROOT / f"{request_id}.json"
+
+
+def write_archive_status(request_id, status, message, backup_name):
+    atomic_write(archive_status_path(request_id), {
+        "request_id": request_id,
+        "status": status,
+        "message": message,
+        "backup_name": backup_name,
+        "timestamp": int(time.time()),
+    })
+
+
+def safe_backup_folder(name):
+    if not isinstance(name, str) or not BACKUP_NAME_RE.fullmatch(name):
+        raise ValueError("invalid backup name")
+    root = BACKUP_ROOT.resolve(strict=True)
+    source = BACKUP_ROOT / name
+    if source.is_symlink() or not source.is_dir():
+        raise ValueError("backup folder unavailable")
+    resolved = source.resolve(strict=True)
+    if resolved.parent != root:
+        raise ValueError("backup path is outside the backup directory")
+    return resolved
+
+
+def create_archive(request):
+    request_id = request["request_id"]
+    backup_name = request["backup_name"]
+    write_archive_status(request_id, "running", "Creating ZIP archive", backup_name)
+    temporary = None
+    try:
+        source = safe_backup_folder(backup_name)
+        ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+        os.chmod(ARCHIVE_ROOT, 0o770)
+        final = ARCHIVE_ROOT / f"{request_id}.zip"
+        temporary = ARCHIVE_ROOT / f".{request_id}.tmp"
+
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+            for current_root, directories, files in os.walk(source, followlinks=False):
+                current = Path(current_root)
+                for name in [*directories, *files]:
+                    item = current / name
+                    if item.is_symlink():
+                        raise ValueError("backup contains a symbolic link")
+                    resolved = item.resolve(strict=True)
+                    try:
+                        relative = resolved.relative_to(source)
+                    except ValueError as error:
+                        raise ValueError("backup entry escapes its folder") from error
+                    archive_name = Path(backup_name) / relative
+                    if item.is_dir():
+                        archive.writestr(str(archive_name).replace("\\", "/") + "/", b"")
+                    elif item.is_file():
+                        archive.write(item, str(archive_name).replace("\\", "/"))
+
+        os.chmod(temporary, 0o660)
+        os.replace(temporary, final)
+        write_archive_status(request_id, "completed", "ZIP archive is ready", backup_name)
+    except (OSError, ValueError, zipfile.BadZipFile):
+        write_archive_status(request_id, "failed", "Backup archive could not be created", backup_name)
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+
+
+def cleanup_archives():
+    cutoff = time.time() - 3600
+    for root in (ARCHIVE_ROOT, ARCHIVE_STATUS_ROOT):
+        try:
+            for item in root.iterdir():
+                if item.is_file() and not item.is_symlink() and item.stat().st_mtime < cutoff:
+                    item.unlink()
+        except OSError:
+            pass
+
+
 def main():
     if fcntl is None:
         raise RuntimeError("backup controller requires POSIX file locking")
@@ -228,6 +344,7 @@ def main():
             return 0
 
         if not REQUEST_FILE.exists():
+            cleanup_archives()
             collect_status()
             return 0
 
@@ -235,6 +352,8 @@ def main():
         try:
             if request is None:
                 collect_status("failed", "Invalid backup request")
+            elif request["action"] == "archive":
+                create_archive(request)
             else:
                 run_backup(request)
         finally:
