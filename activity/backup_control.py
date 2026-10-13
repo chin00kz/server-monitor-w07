@@ -174,10 +174,13 @@ def storage_status():
         return {"status": "unavailable", "total": None, "used": None, "free": None}
 
 
-def collect_status(status=None, message=None, request_id=None):
-    local = local_status()
-    cloud = cloud_status()
-    storage = storage_status()
+def collect_status(
+    status=None, message=None, request_id=None, *,
+    local=None, cloud=None, storage=None,
+):
+    local = local if local is not None else local_status()
+    cloud = cloud if cloud is not None else cloud_status()
+    storage = storage if storage is not None else storage_status()
     if status is None:
         if local["status"] == "failed" or cloud["status"] == "failed":
             status = "failed"
@@ -214,6 +217,18 @@ def backup_process_running():
         return True
 
 
+def verify_cloud_backup(backup_name, attempts=4, delay_seconds=2):
+    """Retry bounded cloud listing until the exact new backup is complete."""
+    latest = {"status": "unavailable", "timestamp": None, "name": None}
+    for attempt in range(attempts):
+        latest = cloud_status()
+        if latest["status"] == "successful" and latest["name"] == backup_name:
+            return latest
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds)
+    return latest
+
+
 def run_backup(request):
     request_id = request["request_id"]
     if backup_process_running():
@@ -239,17 +254,42 @@ def run_backup(request):
     except (OSError, subprocess.SubprocessError):
         return collect_status("failed", "Backup script could not be completed", request_id)
 
-    current = collect_status(request_id=request_id)
-    local = current["last_local"]
-    cloud = current["last_cloud"]
+    local = local_status()
     created_new = (
         local["status"] == "successful"
         and (local["name"] != before.get("name") or local["timestamp"] != before.get("timestamp"))
     )
-    uploaded = cloud["status"] == "successful" and cloud["name"] == local["name"]
-    if result.returncode == 0 and created_new and uploaded:
-        return collect_status("successful", "Local backup and Google Drive upload completed", request_id)
-    return collect_status("failed", "Backup did not complete locally and in Google Drive", request_id)
+
+    if result.returncode != 0:
+        cloud = cloud_status()
+        return collect_status(
+            "failed", f"Backup script failed with exit code {result.returncode}",
+            request_id, local=local, cloud=cloud,
+        )
+
+    if not created_new:
+        cloud = cloud_status()
+        return collect_status(
+            "failed", "Backup script completed but no new successful local backup was found",
+            request_id, local=local, cloud=cloud,
+        )
+
+    cloud = verify_cloud_backup(local["name"])
+    if cloud["status"] == "successful" and cloud["name"] == local["name"]:
+        return collect_status(
+            "successful", "Local backup and Google Drive upload completed",
+            request_id, local=local, cloud=cloud,
+        )
+
+    if cloud["status"] == "successful":
+        message = "Google Drive verification found a different backup folder"
+    elif cloud["status"] == "failed":
+        message = "Google Drive verification found an incomplete backup upload"
+    else:
+        message = "Google Drive verification did not find the new backup"
+    return collect_status(
+        "failed", message, request_id, local=local, cloud=cloud,
+    )
 
 
 def archive_status_path(request_id):

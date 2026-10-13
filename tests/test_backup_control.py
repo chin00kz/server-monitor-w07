@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 
 ACTIVITY = Path(__file__).resolve().parents[1] / "activity"
@@ -76,21 +76,22 @@ class BackupControlTests(unittest.TestCase):
         ])
 
     @patch.object(backup_control, "collect_status")
+    @patch.object(backup_control, "verify_cloud_backup")
     @patch.object(backup_control, "local_status")
     @patch.object(backup_control, "backup_process_running", return_value=False)
     @patch.object(backup_control.subprocess, "run")
     @patch.object(backup_control, "atomic_write")
     def test_manual_backup_invokes_only_fixed_script_through_lock(
-        self, atomic_write, run, process_running, local_status, collect_status,
+        self, atomic_write, run, process_running, local_status,
+        verify_cloud_backup, collect_status,
     ):
         before = {"status": "successful", "timestamp": 10, "name": "old"}
-        current = {
-            "last_local": {"status": "successful", "timestamp": 20, "name": "new"},
-            "last_cloud": {"status": "successful", "timestamp": 21, "name": "new"},
-        }
-        local_status.return_value = before
+        local = {"status": "successful", "timestamp": 20, "name": "new"}
+        cloud = {"status": "successful", "timestamp": 21, "name": "new"}
+        local_status.side_effect = [before, local]
+        verify_cloud_backup.return_value = cloud
         run.return_value = Mock(returncode=0)
-        collect_status.side_effect = [current, {"status": "successful"}]
+        collect_status.return_value = {"status": "successful"}
 
         result = backup_control.run_backup({"request_id": "b" * 32})
 
@@ -100,9 +101,104 @@ class BackupControlTests(unittest.TestCase):
             str(backup_control.BACKUP_SCRIPT),
         ])
         process_running.assert_called_once_with()
-        self.assertEqual(collect_status.call_args_list[-1], call(
-            "successful", "Local backup and Google Drive upload completed", "b" * 32
-        ))
+        verify_cloud_backup.assert_called_once_with("new")
+        collect_status.assert_called_once_with(
+            "successful", "Local backup and Google Drive upload completed", "b" * 32,
+            local=local, cloud=cloud,
+        )
+
+    @patch.object(backup_control.time, "sleep")
+    @patch.object(backup_control, "cloud_status")
+    def test_cloud_verification_retries_then_accepts_exact_backup(self, cloud_status, sleep):
+        cloud_status.side_effect = [
+            {"status": "unavailable", "timestamp": None, "name": None},
+            {"status": "successful", "timestamp": 20, "name": "new"},
+        ]
+
+        result = backup_control.verify_cloud_backup("new")
+
+        self.assertEqual(result["status"], "successful")
+        self.assertEqual(cloud_status.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    @patch.object(backup_control, "collect_status")
+    @patch.object(backup_control, "cloud_status")
+    @patch.object(backup_control, "local_status")
+    @patch.object(backup_control, "backup_process_running", return_value=False)
+    @patch.object(backup_control.subprocess, "run")
+    @patch.object(backup_control, "atomic_write")
+    def test_script_failure_is_never_reported_successfully(
+        self, atomic_write, run, process_running, local_status,
+        cloud_status, collect_status,
+    ):
+        before = {"status": "successful", "timestamp": 10, "name": "old"}
+        local = {"status": "successful", "timestamp": 20, "name": "new"}
+        cloud = {"status": "successful", "timestamp": 21, "name": "new"}
+        local_status.side_effect = [before, local]
+        cloud_status.return_value = cloud
+        run.return_value = Mock(returncode=7)
+        collect_status.return_value = {"status": "failed"}
+
+        result = backup_control.run_backup({"request_id": "d" * 32})
+
+        self.assertEqual(result["status"], "failed")
+        collect_status.assert_called_once_with(
+            "failed", "Backup script failed with exit code 7", "d" * 32,
+            local=local, cloud=cloud,
+        )
+
+    @patch.object(backup_control, "collect_status")
+    @patch.object(backup_control, "cloud_status")
+    @patch.object(backup_control, "local_status")
+    @patch.object(backup_control, "backup_process_running", return_value=False)
+    @patch.object(backup_control.subprocess, "run")
+    @patch.object(backup_control, "atomic_write")
+    def test_missing_new_local_backup_has_specific_failure(
+        self, atomic_write, run, process_running, local_status,
+        cloud_status, collect_status,
+    ):
+        unchanged = {"status": "successful", "timestamp": 10, "name": "old"}
+        cloud = {"status": "successful", "timestamp": 10, "name": "old"}
+        local_status.side_effect = [unchanged, unchanged]
+        cloud_status.return_value = cloud
+        run.return_value = Mock(returncode=0)
+        collect_status.return_value = {"status": "failed"}
+
+        backup_control.run_backup({"request_id": "e" * 32})
+
+        collect_status.assert_called_once_with(
+            "failed", "Backup script completed but no new successful local backup was found",
+            "e" * 32, local=unchanged, cloud=cloud,
+        )
+
+    @patch.object(backup_control, "collect_status")
+    @patch.object(backup_control, "verify_cloud_backup")
+    @patch.object(backup_control, "local_status")
+    @patch.object(backup_control, "backup_process_running", return_value=False)
+    @patch.object(backup_control.subprocess, "run")
+    @patch.object(backup_control, "atomic_write")
+    def test_cloud_verification_failure_keeps_same_component_snapshot(
+        self, atomic_write, run, process_running, local_status,
+        verify_cloud_backup, collect_status,
+    ):
+        before = {"status": "successful", "timestamp": 10, "name": "old"}
+        local = {"status": "successful", "timestamp": 20, "name": "new"}
+        cloud = {"status": "unavailable", "timestamp": None, "name": None}
+        local_status.side_effect = [before, local]
+        verify_cloud_backup.return_value = cloud
+        run.return_value = Mock(returncode=0)
+        collect_status.return_value = {
+            "status": "failed", "last_local": local, "last_cloud": cloud,
+        }
+
+        result = backup_control.run_backup({"request_id": "f" * 32})
+
+        self.assertEqual(result["last_local"], local)
+        self.assertEqual(result["last_cloud"], cloud)
+        collect_status.assert_called_once_with(
+            "failed", "Google Drive verification did not find the new backup",
+            "f" * 32, local=local, cloud=cloud,
+        )
 
     @patch.object(backup_control, "collect_status")
     @patch.object(backup_control, "backup_process_running", return_value=True)
