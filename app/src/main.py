@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
+from docker_uptime import calculate_uptime_seconds
 import store
 from host import PROC, SYS, Collector
 
@@ -663,17 +664,22 @@ def reliability():
             state = item.get("state")
             health = item.get("health")
             restarts = item.get("restarts")
+            started_at = item.get("started_at")
+            safe_state = state if state in (
+                "running", "exited", "restarting", "paused",
+                "created", "dead", "removing"
+            ) else "unknown"
             containers[name] = {
-                "state": state if state in (
-                    "running", "exited", "restarting", "paused",
-                    "created", "dead", "removing"
-                ) else "unknown",
+                "state": safe_state,
                 "health": health if health in (
                     "healthy", "unhealthy", "starting", "none"
                 ) else "unknown",
                 "restarts": restarts if (
                     type(restarts) is int and 0 <= restarts <= 1000000
                 ) else None,
+                "uptime_seconds": calculate_uptime_seconds(
+                    safe_state, started_at, time.time()
+                ),
             }
 
         raw_storage = snapshot.get("storage") or {}

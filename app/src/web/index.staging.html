@@ -913,6 +913,10 @@ const FMT={pct:v=>v.toFixed(v<10?1:0)+"%",c:v=>v.toFixed(0)+"°C",bytes:bytesF,g
   rpm:v=>Math.round(v)+" rpm",mhz:v=>Math.round(v)+" MHz",w:v=>v.toFixed(1)+" W",num:v=>v.toFixed(2),iops:v=>v.toFixed(v<10?1:0)+"/s"};
 const gib=b=>(b/2**30).toFixed(1)+" GiB";
 const fmtUp=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+"d ":"")+h+"h "+m+"m"};
+const fmtContainerUptime=(seconds,state)=>{
+  if (!["running","restarting"].includes(state) || !Number.isInteger(seconds) || seconds < 0) return "—";
+  return fmtUp(seconds);
+};
 const fmtTime=(t,h)=>{const d=new Date(t*1000),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   return h<=24?hm:d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+hm};
 
@@ -1399,6 +1403,7 @@ async function pollReliability(){
         title.textContent = name;
         status.textContent = `${item.state} · ${item.health}`;
         detail.textContent =
+          `Uptime: ${fmtContainerUptime(item.uptime_seconds, item.state)} · ` +
           `Restarts: ${item.restarts === null ? "Unknown" : item.restarts}`;
 
         card.append(title, status, detail);

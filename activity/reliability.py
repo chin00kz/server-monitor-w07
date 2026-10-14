@@ -34,7 +34,8 @@ def collect_docker():
             result["containers"][name] = {
                 "state": state.get("Status", "unknown"),
                 "health": health,
-                "restarts": record.get("RestartCount", 0),
+                "restarts": record.get("RestartCount"),
+                "started_at": state.get("StartedAt"),
             }
         result["status"] = (
             "ok" if len(result["containers"]) == len(CONTAINERS)
