@@ -21,6 +21,8 @@ services:
       DB_PATH: /data/metrics.db
       SAMPLE_SECONDS: "15"
       DOCKER_CONTROL_CONTAINERS: "${DOCKER_CONTROL_CONTAINERS:-homelab-test}"
+      DOCKER_EXPECTED_RUNNING: "${DOCKER_EXPECTED_RUNNING:-}"
+      DOCKER_CRITICAL_CONTAINERS: "${DOCKER_CRITICAL_CONTAINERS:-}"
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     read_only: true
     tmpfs:

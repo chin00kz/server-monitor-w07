@@ -21,6 +21,7 @@ from starlette.background import BackgroundTask
 from activity_snapshot import load_activity_snapshot
 from backup_status import load_backup_status
 from docker_uptime import calculate_uptime_seconds
+from service_expectations import container_roles
 import store
 from host import PROC, SYS, Collector
 
@@ -760,6 +761,7 @@ def reliability():
         "imfs-pg-m3", "imfs-pg-m4", "imfs-pg-integration",
         "homelab-test",
     )
+    roles = container_roles(expected)
     try:
         snapshot = json.loads(Path("/data/activity/latest.json").read_text())
         timestamp = int(snapshot["timestamp"])
@@ -790,6 +792,7 @@ def reliability():
                 "uptime_seconds": calculate_uptime_seconds(
                     safe_state, started_at, time.time()
                 ),
+                **roles[name],
             }
 
         raw_storage = snapshot.get("storage") or {}
@@ -954,6 +957,7 @@ def postgres_health():
         "imfs-pg-m4",
         "imfs-pg-integration",
     )
+    roles = container_roles(expected)
 
     try:
         snapshot = json.loads(
@@ -986,7 +990,7 @@ def postgres_health():
             item = source[name]
 
             if not isinstance(item, dict) or item.get("status") != "ok":
-                databases[name] = {"status": "unknown"}
+                databases[name] = {"status": "unknown", **roles[name]}
                 continue
 
             safe = {}
@@ -1005,7 +1009,7 @@ def postgres_health():
             if safe["max_connections"] == 0:
                 raise ValueError("invalid connection capacity")
 
-            databases[name] = {"status": "ok", **safe}
+            databases[name] = {"status": "ok", **roles[name], **safe}
 
         return {
             "status": "ok",
