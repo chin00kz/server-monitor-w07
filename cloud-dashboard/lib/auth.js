@@ -3,7 +3,7 @@ const {promisify} = require("node:util");
 
 const scrypt = promisify(crypto.scrypt);
 const COOKIE_NAME = "cloud_session";
-const SESSION_TTL_SECONDS = 3600;
+const SESSION_TTL_SECONDS = 2592000;
 
 function parseCookies(request) {
   const result = {};
