@@ -18,7 +18,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from docker_uptime import calculate_uptime_seconds
+from network_health import ALL_INTERFACES, network_status_ok
 from service_expectations import container_roles
+from snapshot_sanitize import (
+    sanitize_activity_database,
+    sanitize_postgres_database,
+)
 import store
 from host import PROC, SYS, Collector
 
@@ -382,18 +387,7 @@ def activity():
 
         safe_databases = {}
         for name in sorted(expected):
-            item = databases[name]
-            if item.get("status") != "ok":
-                raise ValueError("database check unavailable")
-
-            counts = {}
-            for key in ("active", "idle", "idle_in_transaction", "other", "total"):
-                value = item.get(key)
-                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                    raise ValueError("invalid activity count")
-                counts[key] = value
-
-            safe_databases[name] = counts
+            safe_databases[name] = sanitize_activity_database(databases[name])
 
         sessions = snapshot.get("sessions")
         if not isinstance(sessions, dict):
@@ -420,11 +414,10 @@ def activity():
             "interfaces": {},
         }
 
-        names = ("wlp2s0", "enp1s0", "tailscale0")
         if isinstance(raw_network, dict):
             raw_interfaces = raw_network.get("interfaces")
             if isinstance(raw_interfaces, dict):
-                for name in names:
+                for name in ALL_INTERFACES:
                     item = raw_interfaces.get(name)
                     if not isinstance(item, dict):
                         continue
@@ -446,15 +439,24 @@ def activity():
                             "operstate": state,
                             "ipv4": ip,
                         }
+                    elif isinstance(item.get("status"), str):
+                        # Preserve degraded interface rows when inventory is incomplete.
+                        safe_network["interfaces"][name] = {
+                            "status": "unknown",
+                            "operstate": state if isinstance(state, str) else None,
+                            "ipv4": None,
+                        }
 
             preferred = raw_network.get("preferred_interface")
-            if preferred in names:
+            if preferred in ALL_INTERFACES:
                 safe_network["preferred_interface"] = preferred
 
-            if (
-                raw_network.get("status") == "ok"
-                and len(safe_network["interfaces"]) == len(names)
-                and safe_network["preferred_interface"] is not None
+            # Overall ok follows preferred WAN inventory only (not Tailscale).
+            # Prefer collector status when present, but recompute so API and
+            # collector stay consistent even with older snapshots.
+            if network_status_ok(
+                safe_network["preferred_interface"],
+                safe_network["interfaces"],
             ):
                 safe_network["status"] = "ok"
 
@@ -863,43 +865,10 @@ def postgres_health():
             raise ValueError("invalid database snapshot")
 
         databases = {}
-
-        fields = (
-            "active",
-            "idle",
-            "idle_in_transaction",
-            "other",
-            "total",
-            "long_running",
-            "max_connections",
-            "database_size_bytes",
-            "response_ms",
-        )
-
         for name in expected:
-            item = source[name]
-
-            if not isinstance(item, dict) or item.get("status") != "ok":
-                databases[name] = {"status": "unknown", **roles[name]}
-                continue
-
-            safe = {}
-            for field in fields:
-                value = item.get(field)
-
-                if (
-                    not isinstance(value, int)
-                    or isinstance(value, bool)
-                    or value < 0
-                ):
-                    raise ValueError("invalid PostgreSQL metric")
-
-                safe[field] = value
-
-            if safe["max_connections"] == 0:
-                raise ValueError("invalid connection capacity")
-
-            databases[name] = {"status": "ok", **roles[name], **safe}
+            databases[name] = sanitize_postgres_database(
+                source[name], roles[name]
+            )
 
         return {
             "status": "ok",
