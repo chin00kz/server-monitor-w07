@@ -20,8 +20,25 @@ class DockerControlTests(unittest.TestCase):
                     "imfs-pg-m4",
                     "imfs-pg-integration",
                     "homelab-test",
+                    "homelab-ollama",
                 },
             )
+
+    def test_ollama_is_fully_controllable_when_allowlisted(self):
+        with patch.dict(
+            os.environ,
+            {"DOCKER_CONTROL_CONTAINERS": "homelab-ollama"},
+            clear=False,
+        ):
+            for action in ("start", "stop", "restart", "logs"):
+                self.assertEqual(
+                    docker_control.validate_request({
+                        "request_id": "a" * 32,
+                        "container": "homelab-ollama",
+                        "action": action,
+                    })[2],
+                    action,
+                )
 
     def test_server_monitor_allows_logs_only(self):
         self.assertEqual(

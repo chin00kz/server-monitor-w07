@@ -1051,7 +1051,7 @@ canvas { opacity: .92; }
     <div class="side-status-title">Node status</div>
     <div class="side-status-row"><span>Host</span><strong>ONLINE</strong></div>
     <div class="side-status-row"><span>Uptime</span><strong id="side-uptime">Loading</strong></div>
-    <div class="side-status-row"><span>Telemetry</span><strong id="side-health">LIVE</strong></div>
+    <div class="side-status-row"><span>Container metrics</span><strong id="side-health">Unavailable</strong></div>
   </div>
   <div class="sidebar-footer"><small>server-monitor / w07</small><button id="out">Log out</button></div>
 </aside>
@@ -1062,7 +1062,7 @@ canvas { opacity: .92; }
     <div class="telemetry"><span class="telemetry-label">Platform</span><span class="telemetry-value">Ubuntu host</span></div>
     <div class="telemetry"><span class="telemetry-label">Uptime</span><span class="telemetry-value" id="header-uptime">Loading</span></div>
     <div class="telemetry"><span class="telemetry-label">CPU / RAM</span><span class="telemetry-value" id="header-load">Loading</span></div>
-    <div class="health-state" id="header-health">Telemetry live</div>
+    <div class="health-state" id="header-health">Container metrics unavailable</div>
   </div>
   <div class="topbar-actions">
     <select id="range" aria-label="Chart time range">
@@ -1334,6 +1334,31 @@ const fmtContainerUptime=(seconds,state)=>{
 const fmtTime=(t,h)=>{const d=new Date(t*1000),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   return h<=24?hm:d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+hm};
 
+const TELEMETRY_FRESH_SECONDS = 90;
+let lastTelemetryTs = null;
+
+function refreshTelemetryHealthIndicator() {
+  // Driven only by /api/now sample time (d.ts). Independent of host
+  // activity snapshot age shown under "Snapshot freshness".
+  const side = document.getElementById("side-health");
+  const header = document.getElementById("header-health");
+  const now = Date.now() / 1000;
+  let label = "Unavailable";
+  let detail = "Container metrics unavailable";
+  if (Number.isFinite(lastTelemetryTs)) {
+    const age = now - lastTelemetryTs;
+    if (age <= TELEMETRY_FRESH_SECONDS) {
+      label = "LIVE";
+      detail = "Container metrics live";
+    } else {
+      label = "STALE";
+      detail = `Container metrics stale (${Math.max(0, Math.floor(age))}s)`;
+    }
+  }
+  if (side) side.textContent = label;
+  if (header) header.textContent = detail;
+}
+
 const STATUS_LEVELS = ["healthy", "info", "unknown", "warning", "critical"];
 const statusHistory = new Map();
 
@@ -1435,6 +1460,10 @@ function dockerHealthState(item) {
   return {label: `${state[0].toUpperCase()}${state.slice(1)} · Unknown`, level: "neutral"};
 }
 
+function dockerInspectAssessable(dockerStatus) {
+  return dockerStatus === "ok" || dockerStatus === "partial";
+}
+
 function dockerHealthSummary(entries, containers, dockerStatus) {
   const expected = entries.filter(([_, item]) => item.expected_running);
   const basis = expected.length ? expected : entries;
@@ -1445,22 +1474,34 @@ function dockerHealthSummary(entries, containers, dockerStatus) {
   const attention = classified.filter(item =>
     item.level === "danger" || item.level === "warning"
   ).length;
-  const observed = entries.filter(([name]) => containers[name]).length;
+  const knownState = entries.filter(([_, item]) =>
+    item?.state && item.state !== "unknown"
+  ).length;
   const parts = [];
-  if (dockerStatus === "ok") parts.push(
-    `${healthy}/${basis.length}${expected.length ? " expected" : ""} healthy`
-  );
-  else parts.push(`${observed}/${entries.length} observed`);
+  if (dockerInspectAssessable(dockerStatus)) {
+    parts.push(
+      `${healthy}/${basis.length}${expected.length ? " expected" : ""} healthy`
+    );
+    if (dockerStatus === "partial") {
+      parts.push(`${knownState}/${entries.length} inspected`);
+    }
+  } else {
+    parts.push(`${knownState}/${entries.length} observed`);
+  }
   if (noCheck) parts.push(`${noCheck} no check`);
   if (attention) parts.push(`${attention} attention`);
   return parts.join(" · ");
 }
 
 function dockerOverallStatus(entries, dockerStatus) {
-  if (dockerStatus !== "ok") return "unknown";
+  // ok and partial are both assessable from per-container state.
+  // partial is incomplete inventory, not a critical outage by itself.
+  if (!dockerInspectAssessable(dockerStatus)) return "unknown";
   const expected = entries.filter(([_, item]) => item.expected_running);
   const assessed = expected.length ? expected : entries;
-  return worstStatus(assessed.map(([_, item]) => dockerHealthState(item).level));
+  const worst = worstStatus(assessed.map(([_, item]) => dockerHealthState(item).level));
+  if (dockerStatus === "partial" && worst === "healthy") return "info";
+  return worst;
 }
 
 const postgresContainers = new Set([
@@ -1476,7 +1517,8 @@ const dockerControlContainers = new Set([
   "imfs-pg-m3",
   "imfs-pg-m4",
   "imfs-pg-integration",
-  "homelab-test"
+  "homelab-test",
+  "homelab-ollama"
 ]);
 
 const dockerControlInFlight = new Set();
@@ -1870,7 +1912,9 @@ async function pollActivity(schedule = true){
 
       if (!statusEl || !ipEl) continue;
 
-      if (network.status !== "ok" || item?.status !== "ok") {
+      // Show per-interface inventory even when overall network.status is unknown.
+      // Overall status must not blank valid WAN/Tailscale readings.
+      if (item?.status !== "ok") {
         statusEl.textContent = "Unknown";
         ipEl.textContent = "Status unavailable";
         setStatusBorder(statusEl.parentElement, "unknown", `network-${name}`);
@@ -1934,14 +1978,14 @@ async function pollActivity(schedule = true){
     const connectivityNote = document.getElementById("net-connectivity-note");
     if (connectivityNote) {
       connectivityNote.textContent = network.status === "ok"
-        ? "Internet checks: active connection every 5 minutes, backup every 30 minutes. Results reflect the last check; automatic failover has not been tested."
-        : "Network status unavailable or incomplete. Internet reachability cannot be confirmed.";
+        ? "Internet checks: active connection every 5 minutes, backup every 30 minutes. Results reflect the last check; automatic failover has not been tested. Reachability comes from HTTP probes, not Wi-Fi association alone."
+        : "Overall network status incomplete (for example missing preferred WAN inventory). Available interface readings are still shown. Internet reachability cannot be confirmed from association alone.";
     }
 
     count.textContent = availableDbs.length
       ? `${total} connection${total === 1 ? "" : "s"} · ${active} active` +
-        (unavailableDbCount ? ` · ${unavailableDbCount} unavailable` : "")
-      : "Unknown";
+        (unavailableDbCount ? ` · ${unavailableDbCount} DB unavailable` : "")
+      : "Unavailable";
     freshness.textContent = `${d.age_seconds}s ago`;
 
     const activityDetected =
@@ -1953,7 +1997,10 @@ async function pollActivity(schedule = true){
       statusText.textContent = "Activity detected — verify before maintenance";
       badge.textContent = "ACTIVITY DETECTED";
       note.textContent =
-        "One or more database connections, SSH connections, or local sessions are present. Session counts do not prove someone is actively working. Confirm with teammates before maintenance.";
+        "One or more database connections, SSH connections, or local sessions are present. Session counts do not prove someone is actively working. Confirm with teammates before maintenance."
+        + (unavailableDbCount
+          ? ` ${unavailableDbCount} database check${unavailableDbCount === 1 ? "" : "s"} unavailable; totals exclude those databases.`
+          : "");
       setCardStatusById("maintenance-status-text", "warning", "maintenance");
     } else if (unavailableDbCount === 0 && sshValid && localValid) {
       statusText.textContent = "No activity observed";
@@ -1964,11 +2011,16 @@ async function pollActivity(schedule = true){
     } else {
       statusText.textContent = "Activity status incomplete";
       badge.textContent = "UNKNOWN";
-      note.textContent =
-        "No activity was detected in the available readings, but one or more database or session checks are unavailable. Do not assume the workstation is idle.";
+      note.textContent = unavailableDbCount
+        ? `${unavailableDbCount} database check${unavailableDbCount === 1 ? "" : "s"} unavailable. Do not assume the workstation is idle.`
+        : "No activity was detected in the available readings, but one or more session checks are unavailable. Do not assume the workstation is idle.";
       setCardStatusById("maintenance-status-text", "unknown", "maintenance");
     }
-    setCardStatusById("db-activity-count", "healthy", "activity-databases");
+    setCardStatusById(
+      "db-activity-count",
+      unavailableDbCount === 0 ? "healthy" : unavailableDbCount === 5 ? "unknown" : "warning",
+      "activity-databases"
+    );
     setCardStatusById("ssh-activity-count", sshValid ? "healthy" : "unknown", "activity-ssh");
     setCardStatusById("local-session-count", localValid ? "healthy" : "unknown", "activity-local");
     setCardStatusById("last-activity", "healthy", "activity-freshness");
@@ -2093,8 +2145,10 @@ async function pollReliability(schedule = true){
       "imfs-pg-m3",
       "imfs-pg-m4",
       "imfs-pg-integration",
-      "homelab-test"
+      "homelab-test",
+      "homelab-ollama"
     ];
+    // One card per monitored name — do not append duplicates outside this list.
     const entries = monitoredContainers.map(name => [
       name,
       containers[name] || {state: "unknown", health: "unknown", restarts: null}
@@ -2618,10 +2672,14 @@ async function poll(schedule = true){
   try{
     const r=await fetch("/api/now");
     if(r.status===401){location="/login";return}
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();m=d.m||{};info=d.info||{};
+    if (Number.isFinite(d.ts)) lastTelemetryTs = d.ts;
+    refreshTelemetryHealthIndicator();
     updateNetworkTraffic();
     if(d.ts&&!built){built=true;render()}else updateStats();
   }catch(e){
+    refreshTelemetryHealthIndicator();
     if (!schedule) throw e;
   }finally{
     if(schedule) setTimeout(() => poll(true), built?10000:3000);
@@ -2657,10 +2715,13 @@ async function triggerRefresh(){
     const d = await res.json();
     m = d.m || {};
     info = d.info || {};
+    if (Number.isFinite(d.ts)) lastTelemetryTs = d.ts;
+    refreshTelemetryHealthIndicator();
     updateNetworkTraffic();
     if (d.ts && !built) { built = true; render(); } else { updateStats(); }
     hwOk = true;
   } catch (err) {
+    refreshTelemetryHealthIndicator();
     hwError = err;
   }
 
@@ -2709,7 +2770,7 @@ async function triggerRefresh(){
   const lastActText = lastActEl ? lastActEl.textContent : "";
   const hostAgeMatch = lastActText.match(/(\d+)s ago/);
   const hostAgeSec = hostAgeMatch ? parseInt(hostAgeMatch[1], 10) : null;
-  const hostIsStale = hostAgeSec !== null && hostAgeSec > 60;
+  const hostIsStale = hostAgeSec !== null && hostAgeSec > TELEMETRY_FRESH_SECONDS;
 
   if (status) {
     if (!hwOk) {

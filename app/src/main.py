@@ -21,7 +21,9 @@ from starlette.background import BackgroundTask
 from activity_snapshot import load_activity_snapshot
 from backup_status import load_backup_status
 from docker_uptime import calculate_uptime_seconds
+from network_health import ALL_INTERFACES, network_status_ok
 from service_expectations import container_roles
+from snapshot_sanitize import sanitize_postgres_database
 import store
 from host import PROC, SYS, Collector
 
@@ -219,7 +221,8 @@ class DockerControlRequest(BaseModel):
 def configured_docker_containers():
     raw = os.environ.get(
         "DOCKER_CONTROL_CONTAINERS",
-        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,homelab-test",
+        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,"
+        "homelab-test,homelab-ollama",
     )
     return {
         name.strip()
@@ -530,11 +533,10 @@ def activity():
             "interfaces": {},
         }
 
-        names = ("wlp2s0", "enp1s0", "tailscale0")
         if isinstance(raw_network, dict):
             raw_interfaces = raw_network.get("interfaces")
             if isinstance(raw_interfaces, dict):
-                for name in names:
+                for name in ALL_INTERFACES:
                     item = raw_interfaces.get(name)
                     if not isinstance(item, dict):
                         continue
@@ -556,15 +558,24 @@ def activity():
                             "operstate": state,
                             "ipv4": ip,
                         }
+                    elif isinstance(item.get("status"), str):
+                        # Preserve degraded interface rows when inventory is incomplete.
+                        safe_network["interfaces"][name] = {
+                            "status": "unknown",
+                            "operstate": state if isinstance(state, str) else None,
+                            "ipv4": None,
+                        }
 
             preferred = raw_network.get("preferred_interface")
-            if preferred in names:
+            if preferred in ALL_INTERFACES:
                 safe_network["preferred_interface"] = preferred
 
-            if (
-                raw_network.get("status") == "ok"
-                and len(safe_network["interfaces"]) == len(names)
-                and safe_network["preferred_interface"] is not None
+            # Overall ok follows preferred WAN inventory only (not Tailscale).
+            # Prefer collector status when present, but recompute so API and
+            # collector stay consistent even with older snapshots.
+            if network_status_ok(
+                safe_network["preferred_interface"],
+                safe_network["interfaces"],
             ):
                 safe_network["status"] = "ok"
 
@@ -759,7 +770,7 @@ def reliability():
     expected = (
         "server-monitor", "imfs-pg-m1", "imfs-pg-m2",
         "imfs-pg-m3", "imfs-pg-m4", "imfs-pg-integration",
-        "homelab-test",
+        "homelab-test", "homelab-ollama",
     )
     roles = container_roles(expected)
     try:
@@ -858,8 +869,10 @@ def reliability():
             "timestamp": timestamp,
             "age_seconds": age,
             "docker": {
+                # Preserve collector completeness: ok | partial | unknown.
                 "status": (
-                    "ok" if raw_docker.get("status") == "ok"
+                    raw_docker.get("status")
+                    if raw_docker.get("status") in ("ok", "partial")
                     else "unknown"
                 ),
                 "containers": containers,
@@ -973,43 +986,10 @@ def postgres_health():
             raise ValueError("invalid database snapshot")
 
         databases = {}
-
-        fields = (
-            "active",
-            "idle",
-            "idle_in_transaction",
-            "other",
-            "total",
-            "long_running",
-            "max_connections",
-            "database_size_bytes",
-            "response_ms",
-        )
-
         for name in expected:
-            item = source[name]
-
-            if not isinstance(item, dict) or item.get("status") != "ok":
-                databases[name] = {"status": "unknown", **roles[name]}
-                continue
-
-            safe = {}
-            for field in fields:
-                value = item.get(field)
-
-                if (
-                    not isinstance(value, int)
-                    or isinstance(value, bool)
-                    or value < 0
-                ):
-                    raise ValueError("invalid PostgreSQL metric")
-
-                safe[field] = value
-
-            if safe["max_connections"] == 0:
-                raise ValueError("invalid connection capacity")
-
-            databases[name] = {"status": "ok", **roles[name], **safe}
+            databases[name] = sanitize_postgres_database(
+                source[name], roles[name]
+            )
 
         return {
             "status": "ok",

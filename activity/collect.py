@@ -6,6 +6,12 @@ import tempfile
 import time
 from pathlib import Path
 
+from network_health import (
+    ALL_INTERFACES,
+    WAN_INTERFACES,
+    isp_connectivity,
+    network_status_ok,
+)
 from reliability import collect_docker, collect_storage, collect_failover
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -214,7 +220,7 @@ def collect_network(force_probe=False):
     cache["wifi_ssid"] = current_ssid
 
     route_changed = (
-        current_preferred in ("wlp2s0", "enp1s0")
+        current_preferred in WAN_INTERFACES
         and current_preferred != previous_preferred
     )
 
@@ -252,7 +258,7 @@ def collect_network(force_probe=False):
             "interfaces": {},
         }
 
-        for name in ("wlp2s0", "enp1s0", "tailscale0"):
+        for name in ALL_INTERFACES:
             network["interfaces"][name] = {
                 "status": "unknown",
                 "operstate": None,
@@ -292,14 +298,15 @@ def collect_network(force_probe=False):
         except (subprocess.SubprocessError, ValueError, OSError, TypeError):
             pass
 
-        if (
-            network["preferred_interface"] is not None
-            and all(v["status"] == "ok" for v in network["interfaces"].values())
+        # Overall status reflects preferred WAN inventory only — not Tailscale
+        # and not internet reachability (that comes from check_internet probes).
+        if network_status_ok(
+            network["preferred_interface"], network["interfaces"]
         ):
             network["status"] = "ok"
 
         preferred = network["preferred_interface"]
-        if preferred in ("wlp2s0", "enp1s0"):
+        if preferred in WAN_INTERFACES:
             cache["active_result"] = check_internet(preferred)
         else:
             cache["active_result"] = {
@@ -327,11 +334,6 @@ def collect_network(force_probe=False):
 
     unknown = {"status": "unknown", "http_code": None, "response_ms": None}
 
-    # Wi-Fi is Starlink unless the SSID explicitly identifies Dialog.
-    # The interface mapping remains valid when wpa_cli cannot read the SSID.
-    wifi_is_starlink = current_ssid != "Dialog 4G 247"
-    wifi_is_dialog = current_ssid == "Dialog 4G 247"
-
     wifi_result = (
         cache.get("active_result", unknown) if preferred == "wlp2s0"
         else cache.get("backup_result", unknown) if backup == "wlp2s0"
@@ -344,19 +346,15 @@ def collect_network(force_probe=False):
     )
 
     network["wifi_ssid"] = current_ssid
+    # Raw per-interface probe results, independent of ISP labeling.
     network["interface_connectivity"] = {
         "wlp2s0": wifi_result,
         "enp1s0": ethernet_result,
     }
-
-    network["connectivity"] = {
-        "starlink": wifi_result if wifi_is_starlink else unknown,
-        "dialog": (
-            ethernet_result if ethernet_result.get("status") == "reachable"
-            else wifi_result if wifi_is_dialog
-            else ethernet_result
-        ),
-    }
+    # ISP labels require an explicit configured SSID (starlink-mini / Dialog).
+    network["connectivity"] = isp_connectivity(
+        current_ssid, wifi_result, ethernet_result
+    )
 
     network["active_checked_at"] = cache.get("active_checked_at")
     network["backup_checked_at"] = cache.get("backup_checked_at")
