@@ -14,35 +14,48 @@ CONTAINERS = (
     "imfs-pg-m4",
     "imfs-pg-integration",
     "homelab-test",
+    "homelab-ollama",
 )
 
 
+def _container_record(record):
+    state = record.get("State") or {}
+    health = (state.get("Health") or {}).get("Status", "none")
+    return {
+        "state": state.get("Status", "unknown"),
+        "health": health,
+        "restarts": record.get("RestartCount"),
+        "started_at": state.get("StartedAt"),
+    }
+
+
 def collect_docker():
+    """Inspect each monitored container independently.
+
+    A missing optional container (for example homelab-ollama) must not discard
+    results for the rest of the fleet. Batch inspect fails entirely when any
+    name is absent, so probes are per-container.
+    """
     result = {"status": "unknown", "containers": {}}
-    try:
-        proc = subprocess.run(
-            ["docker", "inspect", "--type=container", *CONTAINERS],
-            capture_output=True, text=True, timeout=10, check=True,
-        )
-        records = json.loads(proc.stdout)
-        for record in records:
-            name = record.get("Name", "").lstrip("/")
-            if name not in CONTAINERS:
+    for name in CONTAINERS:
+        try:
+            proc = subprocess.run(
+                ["docker", "inspect", "--type=container", name],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            records = json.loads(proc.stdout)
+            if not records:
                 continue
-            state = record.get("State") or {}
-            health = (state.get("Health") or {}).get("Status", "none")
-            result["containers"][name] = {
-                "state": state.get("Status", "unknown"),
-                "health": health,
-                "restarts": record.get("RestartCount"),
-                "started_at": state.get("StartedAt"),
-            }
-        result["status"] = (
-            "ok" if len(result["containers"]) == len(CONTAINERS)
-            else "partial"
-        )
-    except (OSError, ValueError, subprocess.SubprocessError, TypeError):
-        pass
+            result["containers"][name] = _container_record(records[0])
+        except (OSError, ValueError, subprocess.SubprocessError, TypeError, IndexError):
+            continue
+
+    if not result["containers"]:
+        return result
+    result["status"] = (
+        "ok" if len(result["containers"]) == len(CONTAINERS)
+        else "partial"
+    )
     return result
 
 

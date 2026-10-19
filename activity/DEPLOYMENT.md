@@ -27,7 +27,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now server-docker-control.path
 ```
 
-The service runs as `chinookz` with only supplementary Docker-group access and is explicitly configured for the five PostgreSQL containers plus `homelab-test`. `server-monitor` is enforced as Logs-only; its state-changing actions remain rejected by the controller. The controller writes status to `data/docker-control/status.json` and audit records to `data/activity/docker-control.log`; both paths must be writable by `chinookz`. Validate Docker control with the disposable `homelab-test` configuration before any approved live test. No control action is required for normal dashboard operation.
+The service runs as `chinookz` with only supplementary Docker-group access and is explicitly configured for the five PostgreSQL containers plus `homelab-test` and `homelab-ollama`. `server-monitor` is enforced as Logs-only; its state-changing actions remain rejected by the controller. The controller writes status to `data/docker-control/status.json` and audit records to `data/activity/docker-control.log`; both paths must be writable by `chinookz`. Validate Docker control with the disposable `homelab-test` configuration before any approved live test. No control action is required for normal dashboard operation.
 
 The reusable disposable test container is separate from production Compose:
 

@@ -212,7 +212,8 @@ class DockerControlRequest(BaseModel):
 def configured_docker_containers():
     raw = os.environ.get(
         "DOCKER_CONTROL_CONTAINERS",
-        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,homelab-test",
+        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,"
+        "homelab-test,homelab-ollama",
     )
     return {
         name.strip()
@@ -651,7 +652,7 @@ def reliability():
     expected = (
         "server-monitor", "imfs-pg-m1", "imfs-pg-m2",
         "imfs-pg-m3", "imfs-pg-m4", "imfs-pg-integration",
-        "homelab-test",
+        "homelab-test", "homelab-ollama",
     )
     roles = container_roles(expected)
     try:
@@ -750,8 +751,10 @@ def reliability():
             "timestamp": timestamp,
             "age_seconds": age,
             "docker": {
+                # Preserve collector completeness: ok | partial | unknown.
                 "status": (
-                    "ok" if raw_docker.get("status") == "ok"
+                    raw_docker.get("status")
+                    if raw_docker.get("status") in ("ok", "partial")
                     else "unknown"
                 ),
                 "containers": containers,

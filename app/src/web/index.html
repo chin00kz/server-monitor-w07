@@ -1386,6 +1386,10 @@ function dockerHealthState(item) {
   return {label: `${state[0].toUpperCase()}${state.slice(1)} · Unknown`, level: "neutral"};
 }
 
+function dockerInspectAssessable(dockerStatus) {
+  return dockerStatus === "ok" || dockerStatus === "partial";
+}
+
 function dockerHealthSummary(entries, containers, dockerStatus) {
   const expected = entries.filter(([_, item]) => item.expected_running);
   const basis = expected.length ? expected : entries;
@@ -1396,22 +1400,34 @@ function dockerHealthSummary(entries, containers, dockerStatus) {
   const attention = classified.filter(item =>
     item.level === "danger" || item.level === "warning"
   ).length;
-  const observed = entries.filter(([name]) => containers[name]).length;
+  const knownState = entries.filter(([_, item]) =>
+    item?.state && item.state !== "unknown"
+  ).length;
   const parts = [];
-  if (dockerStatus === "ok") parts.push(
-    `${healthy}/${basis.length}${expected.length ? " expected" : ""} healthy`
-  );
-  else parts.push(`${observed}/${entries.length} observed`);
+  if (dockerInspectAssessable(dockerStatus)) {
+    parts.push(
+      `${healthy}/${basis.length}${expected.length ? " expected" : ""} healthy`
+    );
+    if (dockerStatus === "partial") {
+      parts.push(`${knownState}/${entries.length} inspected`);
+    }
+  } else {
+    parts.push(`${knownState}/${entries.length} observed`);
+  }
   if (noCheck) parts.push(`${noCheck} no check`);
   if (attention) parts.push(`${attention} attention`);
   return parts.join(" · ");
 }
 
 function dockerOverallStatus(entries, dockerStatus) {
-  if (dockerStatus !== "ok") return "unknown";
+  // ok and partial are both assessable from per-container state.
+  // partial is incomplete inventory, not a critical outage by itself.
+  if (!dockerInspectAssessable(dockerStatus)) return "unknown";
   const expected = entries.filter(([_, item]) => item.expected_running);
   const assessed = expected.length ? expected : entries;
-  return worstStatus(assessed.map(([_, item]) => dockerHealthState(item).level));
+  const worst = worstStatus(assessed.map(([_, item]) => dockerHealthState(item).level));
+  if (dockerStatus === "partial" && worst === "healthy") return "info";
+  return worst;
 }
 
 const postgresContainers = new Set([
@@ -1427,7 +1443,8 @@ const dockerControlContainers = new Set([
   "imfs-pg-m3",
   "imfs-pg-m4",
   "imfs-pg-integration",
-  "homelab-test"
+  "homelab-test",
+  "homelab-ollama"
 ]);
 
 const dockerControlInFlight = new Set();
@@ -2054,8 +2071,10 @@ async function pollReliability(schedule = true){
       "imfs-pg-m3",
       "imfs-pg-m4",
       "imfs-pg-integration",
-      "homelab-test"
+      "homelab-test",
+      "homelab-ollama"
     ];
+    // One card per monitored name — do not append duplicates outside this list.
     const entries = monitoredContainers.map(name => [
       name,
       containers[name] || {state: "unknown", health: "unknown", restarts: null}
