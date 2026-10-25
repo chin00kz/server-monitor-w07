@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish Oracle backup Postgres status every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Persistent=true
+Unit=server-monitor-oracle-cloud-publisher.service
+
+[Install]
+WantedBy=timers.target

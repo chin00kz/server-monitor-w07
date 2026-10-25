@@ -39,15 +39,16 @@ Failure of the cloud path does not affect the local Tailscale dashboard or Docke
 
 - **Header**: Cloud status, node id, LIVE/STALE/OFFLINE badge, uptime, last update, Sign out.
 - **Top row (3 panels)**: Connectivity (Starlink / Dialog), Host power (battery), Utilization (CPU / RAM / disk) — industrial outline icons.
-- **Bottom**: Workloads service tiles (3×2) with PostgreSQL / AI icons and green/amber/red top borders.
+- **Bottom**: Workloads service tiles (3×N) with PostgreSQL / AI icons and green/amber/red top borders. Oracle backup is a seventh tile with a muted **Backup** chip.
 
-Services shown (publisher allowlist):
+Services shown:
 
-| Label | Source container |
+| Label | Source |
 | --- | --- |
-| IMFS Integration | `imfs-pg-integration` |
-| IMFS M1–M4 | `imfs-pg-m1` … `imfs-pg-m4` |
-| Ollama | `homelab-ollama` — `no_check` displays as **Running** and counts toward healthy |
+| IMFS Integration | Dell `imfs-pg-integration` |
+| IMFS M1–M4 | Dell `imfs-pg-m1` … `imfs-pg-m4` |
+| Ollama | Dell `homelab-ollama` — `no_check` displays as **Running** and counts toward healthy |
+| IMFS Integration Backup | Oracle `ubsever02` `imfs-pg-integration` via `publisher_oracle.py` (merged when `CLOUD_BACKUP_NODE_ID` is set) |
 
 ## Project layout
 
@@ -76,7 +77,8 @@ cloud-dashboard/
 | --- | --- |
 | `SUPABASE_URL` | Project URL |
 | `SUPABASE_READONLY_KEY` | Anon/publishable key — can call `read_node_status` only |
-| `CLOUD_NODE_ID` | Must match publisher (`workstation-07-5d`) |
+| `CLOUD_NODE_ID` | Must match Dell publisher (`workstation-07-5d`) |
+| `CLOUD_BACKUP_NODE_ID` | Optional Oracle node id (`ubsever02`) for the backup Postgres tile |
 | `DASHBOARD_PASSWORD_HASH` | `scrypt$N$r$p$salt$hash` (base64url; min `16384$8$1`) |
 | `DASHBOARD_SESSION_SECRET` | ≥32 random bytes for cookie HMAC |
 

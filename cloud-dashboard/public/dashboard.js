@@ -1,5 +1,5 @@
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;if(root)root.DashboardPresentation=api})(typeof globalThis!=="undefined"?globalThis:this,function(){
-const SERVICE_NAMES=["IMFS Integration","IMFS M1","IMFS M2","IMFS M3","IMFS M4","Ollama"],ROUTES={starlink:"starlink-mini",dialog:"dialog-ethernet"};
+const SERVICE_NAMES=["IMFS Integration","IMFS M1","IMFS M2","IMFS M3","IMFS M4","Ollama","IMFS Integration Backup"],BACKUP_SERVICE_NAME="IMFS Integration Backup",ROUTES={starlink:"starlink-mini",dialog:"dialog-ethernet"};
 function networkState(value,isRoute,connection){if(connection!=="live")return{label:"Unknown",level:"neutral"};if(!["reachable","unreachable"].includes(value))return{label:"Unknown",level:"neutral"};if(value==="unreachable")return{label:"Unreachable",level:"bad"};return isRoute?{label:"Active",level:"good"}:{label:"Reachable",level:"neutral"}}
 function networkModel(network={},connection="disconnected"){const active=Object.values(ROUTES).includes(network.active_route)?network.active_route:"unknown",starlink=networkState(network.starlink,active===ROUTES.starlink,connection),dialog=networkState(network.dialog,active===ROUTES.dialog,connection);return{
 starlink,dialog,
@@ -35,9 +35,9 @@ function resourcesBorder(resources,connection){
   return"unknown";
 }
 function serviceOk(status){return status==="healthy"||status==="no_check"}
-function serviceModel(services={},connection="disconnected"){const source=new Map((services.items||[]).map(item=>[item.name,item.status])),items=SERVICE_NAMES.map(name=>({name,status:connection==="live"?source.get(name)||"unknown":"unknown"})),healthy=items.filter(item=>serviceOk(item.status)).length;return{items,healthy,total:items.length,level:connection!=="live"?"neutral":healthy===items.length?"good":"warn",label:connection==="live"?`${healthy}/${items.length} Healthy`:`0/${items.length} Unknown`,border:connection!=="live"?"unknown":healthy===items.length?"healthy":items.some(item=>item.status==="unhealthy"||item.status==="stopped")?"critical":"warning"}}
+function serviceModel(services={},connection="disconnected"){const source=new Map((services.items||[]).map(item=>[item.name,item.status])),items=SERVICE_NAMES.map(name=>{const entry={name,status:connection==="live"?source.get(name)||"unknown":"unknown"};if(name===BACKUP_SERVICE_NAME)entry.role="backup";return entry}),healthy=items.filter(item=>serviceOk(item.status)).length;return{items,healthy,total:items.length,level:connection!=="live"?"neutral":healthy===items.length?"good":"warn",label:connection==="live"?`${healthy}/${items.length} Healthy`:`0/${items.length} Unknown`,border:connection!=="live"?"unknown":healthy===items.length?"healthy":items.some(item=>item.status==="unhealthy"||item.status==="stopped")?"critical":"warning"}}
 function viewModel(result={}){const connectionState=["live","stale","disconnected"].includes(result.connection_state)?result.connection_state:"disconnected",payload=result.payload||{},resources={cpu:metricModel(payload.resources?.cpu_percent,connectionState),ram:metricModel(payload.resources?.ram_percent,connectionState),disk:metricModel(payload.resources?.disk_percent,connectionState)};return{connectionState,connectionLabel:connectionState==="live"?"LIVE":connectionState==="stale"?"STALE":"OFFLINE",node:payload.node||{},network:networkModel(payload.network,connectionState),battery:batteryModel(payload.battery,connectionState),resources,resourcesBorder:resourcesBorder(resources,connectionState),services:serviceModel(payload.services,connectionState)}}
-return{SERVICE_NAMES,networkModel,batteryModel,metricModel,serviceModel,viewModel}});
+return{SERVICE_NAMES,BACKUP_SERVICE_NAME,networkModel,batteryModel,metricModel,serviceModel,viewModel}});
 
 if(typeof document!=="undefined"){
 const $=s=>document.querySelector(s),P=globalThis.DashboardPresentation,loginView=$("#login-view"),dashboardView=$("#dashboard-view");
@@ -61,7 +61,11 @@ const ICONS={
 };
 function mountIcons(root=document){root.querySelectorAll("[data-icon]").forEach(el=>{const key=el.getAttribute("data-icon");if(ICONS[key])el.innerHTML=ICONS[key]})}
 function roleLabel(role){return({PRIMARY:"Primary link",STANDBY:"Backup link",OFFLINE:"Offline",UNKNOWN:"Unknown"})[role]||role}
-function serviceMeta(name){return name==="Ollama"?{icon:"ai",kind:"AI runtime"}:{icon:"database",kind:"PostgreSQL"}}
+function serviceMeta(name){
+  if(name==="Ollama")return{icon:"ai",kind:"AI runtime",role:null};
+  if(name===BACKUP_SERVICE_NAME)return{icon:"database",kind:"PostgreSQL",role:"Backup"};
+  return{icon:"database",kind:"PostgreSQL",role:null};
+}
 function setPanelBorder(id,level){const el=$("#"+id);if(!el)return;el.classList.add("status-border");for(const name of BORDER_LEVELS)el.classList.remove(`status-${name}`);el.classList.add(`status-${BORDER_LEVELS.includes(level)?level:"unknown"}`)}
 function setText(id,value,level){const el=$("#"+id);el.textContent=value;if(level)el.className=level}
 function setStatus(id,item){const el=$("#"+id);el.className=`status ${item.level}`;el.replaceChildren(document.createElement("i"),document.createTextNode(item.label))}
@@ -106,7 +110,8 @@ function render(result){
     const name=document.createElement("span");
     const kind=document.createElement("span");
     const state=document.createElement("strong");
-    row.className=`service ${serviceRowClass(item.status)}`.trim();
+    const isBackup=item.role==="backup"||meta.role==="Backup";
+    row.className=`service ${serviceRowClass(item.status)}${isBackup?" role-backup":""}`.trim();
     left.className="service-left";
     icon.className="row-icon";
     icon.setAttribute("aria-hidden","true");
@@ -118,6 +123,12 @@ function render(result){
     state.className=`service-status ${item.status}`;
     state.textContent=item.status==="no_check"?"Running":item.status.replaceAll("_"," ");
     copy.append(name,kind);
+    if(isBackup){
+      const role=document.createElement("span");
+      role.className="service-role";
+      role.textContent="Backup";
+      copy.append(role);
+    }
     left.append(icon,copy);
     row.append(left,state);
     list.append(row);

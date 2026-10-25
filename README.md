@@ -115,9 +115,9 @@ The separate `cloud/` publisher and `cloud-dashboard/` Vercel project provide **
 Flow:
 
 1. Host systemd timer runs `cloud/publisher.py`.
-2. Publisher reads `data/activity/latest.json` + SQLite, builds an allowlisted snapshot (network, battery %, AC state, CPU/RAM/disk, IMFS Postgres services + Ollama), and upserts to Supabase with the service-role key.
-3. Vercel serves a shared-password dashboard that can only call the read-only `read_node_status` RPC with the anon key.
-4. Cloud UI: compact header + three panels (Connectivity / Power / Resources) + Workloads service cards with DB/AI icons. Live/stale/offline is derived from Supabase `received_at`.
+2. Dell publisher reads `data/activity/latest.json` + SQLite, builds an allowlisted snapshot (network, battery %, AC state, CPU/RAM/disk, IMFS Postgres services + Ollama), and upserts to Supabase with the service-role key. Optional Oracle publisher on `ubsever02` upserts a second node for **IMFS Integration Backup**.
+3. Vercel serves a shared-password dashboard that can only call the read-only `read_node_status` RPC with the anon key (Dell + optional `CLOUD_BACKUP_NODE_ID` merge).
+4. Cloud UI: compact header + three panels (Connectivity / Power / Resources) + Workloads service cards with DB/AI icons (plus Backup chip for the Oracle tile). Live/stale/offline is derived from Supabase `received_at`.
 
 Production: https://server-monitor-cloud-dashboard.vercel.app
 

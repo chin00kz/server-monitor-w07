@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {classifyReceipt, sanitizePayload} = require("../lib/status");
+const {classifyReceipt, sanitizePayload, mergeBackupService, BACKUP_SERVICE_NAME} = require("../lib/status");
 const statusHandler = require("../api/status");
 
 test("receipt timestamps produce live, stale, and disconnected states", () => {
@@ -62,4 +62,27 @@ test("status endpoint rejects unauthenticated requests", async () => {
   const response = {headers: {}, setHeader(key, value) {this.headers[key] = value;}, status(code) {this.code = code; return this;}, json(body) {this.body = body;}};
   await statusHandler({method: "GET", headers: {}}, response);
   assert.equal(response.code, 401);
+});
+
+test("mergeBackupService appends backup role and status from live backup row", () => {
+  const primary = sanitizePayload({
+    node: {id: "workstation-07-5d", uptime_seconds: 10},
+    services: {items: [{name: "IMFS Integration", status: "healthy"}, {name: "Ollama", status: "no_check"}]}
+  });
+  const backup = {
+    services: {items: [{name: BACKUP_SERVICE_NAME, status: "healthy", role: "backup"}]}
+  };
+  const merged = mergeBackupService(primary, backup, "live");
+  const item = merged.services.items.find(entry => entry.name === BACKUP_SERVICE_NAME);
+  assert.equal(item.status, "healthy");
+  assert.equal(item.role, "backup");
+  assert.equal(merged.services.items.filter(entry => entry.name === BACKUP_SERVICE_NAME).length, 1);
+});
+
+test("mergeBackupService marks backup unknown when backup node is disconnected", () => {
+  const primary = sanitizePayload({
+    services: {items: [{name: "IMFS Integration", status: "healthy"}]}
+  });
+  const merged = mergeBackupService(primary, {services: {items: [{name: BACKUP_SERVICE_NAME, status: "healthy"}]}}, "disconnected");
+  assert.equal(merged.services.items.find(entry => entry.name === BACKUP_SERVICE_NAME).status, "unknown");
 });

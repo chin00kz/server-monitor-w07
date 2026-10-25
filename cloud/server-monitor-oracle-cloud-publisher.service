@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish Oracle IMFS Integration Backup status to Supabase
+Documentation=https://github.com/chin00kz/server-monitor-w07
+
+[Service]
+Type=oneshot
+User=chinookz
+WorkingDirectory=/home/chinookz
+EnvironmentFile=-/etc/server-monitor/oracle-cloud-publisher.env
+ExecStart=/usr/bin/python3 /home/chinookz/server-monitor-oracle/cloud/publisher_oracle.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+TimeoutStartSec=20
