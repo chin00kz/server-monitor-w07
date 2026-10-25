@@ -127,9 +127,17 @@ def publish(payload):
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        if response.status >= 300:
-            raise RuntimeError(f"Supabase publish failed: HTTP {response.status}")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status >= 300:
+                raise RuntimeError(f"Supabase publish failed: HTTP {response.status}")
+    except urllib.error.HTTPError as error:
+        body = ""
+        try:
+            body = error.read().decode("utf-8", errors="replace")[:240]
+        except OSError:
+            pass
+        raise RuntimeError(f"Supabase publish failed: HTTP {error.code} {body}".strip()) from error
 
 
 def main():

@@ -77,14 +77,26 @@ function sanitizePayload(payload) {
   };
 }
 
+/** Minimal Dell-shaped payload so Oracle backup can still merge when Dell is absent. */
+function emptyPrimaryPayload() {
+  return sanitizePayload({
+    node: {id: "unknown", uptime_seconds: null},
+    network: {active_route: "unknown", starlink: "unknown", dialog: "unknown"},
+    battery: {activity: "unknown", percent: null, on_ac: null, status: "unknown"},
+    resources: {cpu_percent: null, ram_percent: null, disk_percent: null},
+    services: {items: [], healthy: 0, total: 0}
+  });
+}
+
 /**
  * Append/replace the Oracle backup service on a Dell (primary) sanitized payload.
  * connectionState is the backup row's receipt class; disconnected → unknown status.
+ * Accepts null primary and substitutes emptyPrimaryPayload().
  */
 function mergeBackupService(primaryPayload, backupPayload, backupConnectionState) {
   const base = primaryPayload && typeof primaryPayload === "object"
     ? structuredClone(primaryPayload)
-    : null;
+    : emptyPrimaryPayload();
   if (!base) return null;
   const services = base.services && typeof base.services === "object" ? base.services : {items: []};
   const items = Array.isArray(services.items) ? services.items.filter(item => item.name !== BACKUP_SERVICE_NAME) : [];
@@ -111,5 +123,6 @@ module.exports = {
   BACKUP_SERVICE_NAME,
   classifyReceipt,
   sanitizePayload,
+  emptyPrimaryPayload,
   mergeBackupService
 };

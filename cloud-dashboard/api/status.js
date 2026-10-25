@@ -1,5 +1,10 @@
 const {verifySession} = require("../lib/auth");
-const {classifyReceipt, sanitizePayload, mergeBackupService} = require("../lib/status");
+const {
+  classifyReceipt,
+  sanitizePayload,
+  mergeBackupService,
+  emptyPrimaryPayload
+} = require("../lib/status");
 
 async function readNodeStatus(baseUrl, headers, nodeId) {
   const dataResponse = await fetch(`${baseUrl}/rest/v1/rpc/read_node_status`, {
@@ -10,6 +15,20 @@ async function readNodeStatus(baseUrl, headers, nodeId) {
   if (!dataResponse.ok) return null;
   const rows = await dataResponse.json();
   return Array.isArray(rows) ? rows[0] || null : null;
+}
+
+async function loadBackup(baseUrl, headers, backupNodeId) {
+  if (!backupNodeId) return {payload: null, connection: "disconnected"};
+  try {
+    const backupRow = await readNodeStatus(baseUrl, headers, backupNodeId);
+    if (!backupRow) return {payload: null, connection: "disconnected"};
+    return {
+      payload: backupRow.payload,
+      connection: classifyReceipt(backupRow.received_at)
+    };
+  } catch (_error) {
+    return {payload: null, connection: "disconnected"};
+  }
 }
 
 module.exports = async function status(request, response) {
@@ -37,29 +56,20 @@ module.exports = async function status(request, response) {
   };
   try {
     const row = await readNodeStatus(baseUrl, headers, nodeId);
-    if (!row) {
+    const primaryConnection = row ? classifyReceipt(row.received_at) : "disconnected";
+    let payload = row ? sanitizePayload(row.payload) : emptyPrimaryPayload();
+    if (backupNodeId) {
+      const backup = await loadBackup(baseUrl, headers, backupNodeId);
+      payload = mergeBackupService(payload, backup.payload, backup.connection);
+    }
+    if (!row && !backupNodeId) {
       response.status(200).json({connection_state: "disconnected", received_at: null, payload: null});
       return;
     }
-    let payload = sanitizePayload(row.payload);
-    if (backupNodeId && payload) {
-      let backupPayload = null;
-      let backupConnection = "disconnected";
-      try {
-        const backupRow = await readNodeStatus(baseUrl, headers, backupNodeId);
-        if (backupRow) {
-          backupConnection = classifyReceipt(backupRow.received_at);
-          backupPayload = backupRow.payload;
-        }
-      } catch (_error) {
-        backupConnection = "disconnected";
-      }
-      payload = mergeBackupService(payload, backupPayload, backupConnection);
-    }
     response.status(200).json({
-      connection_state: classifyReceipt(row.received_at),
-      received_at: row.received_at,
-      observed_at: row.observed_at,
+      connection_state: primaryConnection,
+      received_at: row ? row.received_at : null,
+      observed_at: row ? row.observed_at : null,
       payload
     });
   } catch (error) {

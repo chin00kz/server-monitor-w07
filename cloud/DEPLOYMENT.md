@@ -109,6 +109,8 @@ journalctl -u server-monitor-oracle-cloud-publisher.service -n 50 --no-pager
 
 The dashboard merges this row when Vercel has `CLOUD_BACKUP_NODE_ID=ubsever02`. The card label is **IMFS Integration Backup (Oracle)** (role chip **Backup**); it does not replace Dell’s primary **IMFS Integration** tile.
 
+Oracle status is independent of Dell: `/api/status` still reads `ubsever02` when the Dell row is missing or stale/offline, and the UI keeps the backup tile’s status from that merge. Header LIVE/STALE/OFFLINE remains Dell’s receipt age only.
+
 ## Vercel dashboard
 
 Deploy `cloud-dashboard/` as a separate Vercel project (this repo’s project name: `server-monitor-cloud-dashboard`).

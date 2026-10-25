@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {classifyReceipt, sanitizePayload, mergeBackupService, BACKUP_SERVICE_NAME} = require("../lib/status");
+const {classifyReceipt, sanitizePayload, mergeBackupService, emptyPrimaryPayload, BACKUP_SERVICE_NAME} = require("../lib/status");
 const statusHandler = require("../api/status");
 
 test("receipt timestamps produce live, stale, and disconnected states", () => {
@@ -85,4 +85,14 @@ test("mergeBackupService marks backup unknown when backup node is disconnected",
   });
   const merged = mergeBackupService(primary, {services: {items: [{name: BACKUP_SERVICE_NAME, status: "healthy"}]}}, "disconnected");
   assert.equal(merged.services.items.find(entry => entry.name === BACKUP_SERVICE_NAME).status, "unknown");
+});
+
+test("mergeBackupService works when Dell primary payload is absent", () => {
+  const backup = {
+    services: {items: [{name: BACKUP_SERVICE_NAME, status: "healthy", role: "backup"}]}
+  };
+  const merged = mergeBackupService(null, backup, "live");
+  assert.equal(merged.node.id, "unknown");
+  assert.equal(merged.services.items.find(entry => entry.name === BACKUP_SERVICE_NAME).status, "healthy");
+  assert.equal(emptyPrimaryPayload().services.items.length, 0);
 });

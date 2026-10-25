@@ -35,7 +35,37 @@ function resourcesBorder(resources,connection){
   return"unknown";
 }
 function serviceOk(status){return status==="healthy"||status==="no_check"}
-function serviceModel(services={},connection="disconnected"){const source=new Map((services.items||[]).map(item=>[item.name,item.status])),items=SERVICE_NAMES.map(name=>{const entry={name,status:connection==="live"?source.get(name)||"unknown":"unknown"};if(name===BACKUP_SERVICE_NAME)entry.role="backup";return entry}),healthy=items.filter(item=>serviceOk(item.status)).length;return{items,healthy,total:items.length,level:connection!=="live"?"neutral":healthy===items.length?"good":"warn",label:connection==="live"?`${healthy}/${items.length} Healthy`:`0/${items.length} Unknown`,border:connection!=="live"?"unknown":healthy===items.length?"healthy":items.some(item=>item.status==="unhealthy"||item.status==="stopped")?"critical":"warning"}}
+function serviceModel(services={},connection="disconnected"){
+  const source=new Map((services.items||[]).map(item=>[item.name,item.status]));
+  // Dell workloads only trust LIVE primary telemetry. Oracle backup is independent:
+  // the API already aged the backup row; keep that status even when Dell is offline.
+  const items=SERVICE_NAMES.map(name=>{
+    let status="unknown";
+    if(name===BACKUP_SERVICE_NAME)status=source.get(name)||"unknown";
+    else if(connection==="live")status=source.get(name)||"unknown";
+    const entry={name,status};
+    if(name===BACKUP_SERVICE_NAME)entry.role="backup";
+    return entry;
+  });
+  const healthy=items.filter(item=>serviceOk(item.status)).length;
+  const known=items.filter(item=>item.status!=="unknown").length;
+  const hasProblem=items.some(item=>item.status==="unhealthy"||item.status==="stopped");
+  let label,level,border;
+  if(connection==="live"){
+    label=`${healthy}/${items.length} Healthy`;
+    level=healthy===items.length?"good":"warn";
+    border=healthy===items.length?"healthy":hasProblem?"critical":"warning";
+  }else if(known>0){
+    label=`${healthy}/${items.length} Healthy`;
+    level=hasProblem?"warn":healthy>0?"good":"neutral";
+    border=hasProblem?"critical":healthy>0?"healthy":"unknown";
+  }else{
+    label=`0/${items.length} Unknown`;
+    level="neutral";
+    border="unknown";
+  }
+  return{items,healthy,total:items.length,level,label,border};
+}
 function viewModel(result={}){const connectionState=["live","stale","disconnected"].includes(result.connection_state)?result.connection_state:"disconnected",payload=result.payload||{},resources={cpu:metricModel(payload.resources?.cpu_percent,connectionState),ram:metricModel(payload.resources?.ram_percent,connectionState),disk:metricModel(payload.resources?.disk_percent,connectionState)};return{connectionState,connectionLabel:connectionState==="live"?"LIVE":connectionState==="stale"?"STALE":"OFFLINE",node:payload.node||{},network:networkModel(payload.network,connectionState),battery:batteryModel(payload.battery,connectionState),resources,resourcesBorder:resourcesBorder(resources,connectionState),services:serviceModel(payload.services,connectionState)}}
 return{SERVICE_NAMES,BACKUP_SERVICE_NAME,networkModel,batteryModel,metricModel,serviceModel,viewModel}});
 
