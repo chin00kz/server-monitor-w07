@@ -35,6 +35,26 @@ function resourcesBorder(resources,connection){
   return"unknown";
 }
 function serviceOk(status){return status==="healthy"||status==="no_check"}
+function servicesPanelStyle(items){
+  const down=items.filter(item=>!serviceOk(item.status));
+  const up=items.filter(item=>serviceOk(item.status));
+  const ollama=items.find(item=>item.name==="Ollama");
+  const backup=items.find(item=>item.name===BACKUP_SERVICE_NAME);
+  const ollamaDown=!!ollama&&!serviceOk(ollama.status);
+  const backupDown=!!backup&&!serviceOk(backup.status);
+  const backupUp=!!backup&&serviceOk(backup.status);
+  // ALL GOOD → solid green
+  if(down.length===0)return{border:"healthy",pulse:null};
+  // only Ollama down → green blinking
+  if(down.length===1&&ollamaDown)return{border:"healthy",pulse:"green"};
+  // only Oracle backup down → green blinking
+  if(down.length===1&&backupDown)return{border:"healthy",pulse:"green"};
+  // all 7 down → red
+  if(up.length===0)return{border:"critical",pulse:null};
+  // backup Oracle up while board is degraded → yellow blinking
+  if(backupUp)return{border:"warning",pulse:"yellow"};
+  return{border:"critical",pulse:null};
+}
 function serviceModel(services={},connection="disconnected"){
   const source=new Map((services.items||[]).map(item=>[item.name,item.status]));
   // Dell workloads only trust LIVE primary telemetry. Oracle backup is independent:
@@ -49,31 +69,26 @@ function serviceModel(services={},connection="disconnected"){
   });
   const healthy=items.filter(item=>serviceOk(item.status)).length;
   const known=items.filter(item=>item.status!=="unknown").length;
-  const hasProblem=items.some(item=>item.status==="unhealthy"||item.status==="stopped");
-  let label,level,border;
-  if(connection==="live"){
+  const style=servicesPanelStyle(items);
+  let label,level;
+  if(connection==="live"||known>0){
     label=`${healthy}/${items.length} Healthy`;
-    level=healthy===items.length?"good":"warn";
-    border=healthy===items.length?"healthy":hasProblem?"critical":"warning";
-  }else if(known>0){
-    label=`${healthy}/${items.length} Healthy`;
-    level=hasProblem?"warn":healthy>0?"good":"neutral";
-    border=hasProblem?"critical":healthy>0?"healthy":"unknown";
+    level=healthy===items.length?"good":healthy>0?"warn":"neutral";
   }else{
     label=`0/${items.length} Unknown`;
     level="neutral";
-    border="unknown";
   }
-  return{items,healthy,total:items.length,level,label,border};
+  return{items,healthy,total:items.length,level,label,border:style.border,pulse:style.pulse};
 }
 function viewModel(result={}){const connectionState=["live","stale","disconnected"].includes(result.connection_state)?result.connection_state:"disconnected",payload=result.payload||{},resources={cpu:metricModel(payload.resources?.cpu_percent,connectionState),ram:metricModel(payload.resources?.ram_percent,connectionState),disk:metricModel(payload.resources?.disk_percent,connectionState)};return{connectionState,connectionLabel:connectionState==="live"?"LIVE":connectionState==="stale"?"STALE":"OFFLINE",node:payload.node||{},network:networkModel(payload.network,connectionState),battery:batteryModel(payload.battery,connectionState),resources,resourcesBorder:resourcesBorder(resources,connectionState),services:serviceModel(payload.services,connectionState)}}
-return{SERVICE_NAMES,BACKUP_SERVICE_NAME,networkModel,batteryModel,metricModel,serviceModel,viewModel}});
+return{SERVICE_NAMES,BACKUP_SERVICE_NAME,networkModel,batteryModel,metricModel,serviceModel,servicesPanelStyle,viewModel}});
 
 if(typeof document!=="undefined"){
 const $=s=>document.querySelector(s),P=globalThis.DashboardPresentation,loginView=$("#login-view"),dashboardView=$("#dashboard-view");
 const formatUptime=seconds=>{if(!Number.isFinite(seconds))return"Unavailable";const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60);return`${d?`${d}d `:""}${h}h ${m}m`};
 const formatTime=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?"Never":date.toLocaleString([],{dateStyle:"medium",timeStyle:"short"})};
 const BORDER_LEVELS=["healthy","warning","critical","info","unknown"];
+const PULSE_CLASSES=["pulse-green","pulse-yellow"];
 const ICONS={
   network:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
   satellite:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m13 7 5 5-8 8-5-5z"/><path d="m19 4 1 1M9 18l-5 5M14 9l5-5"/><circle cx="6.5" cy="6.5" r="1.5"/></svg>',
@@ -96,7 +111,16 @@ function serviceMeta(name){
   if(name==="IMFS Integration Backup (Oracle)")return{icon:"database",kind:"PostgreSQL",role:"Backup"};
   return{icon:"database",kind:"PostgreSQL",role:null};
 }
-function setPanelBorder(id,level){const el=$("#"+id);if(!el)return;el.classList.add("status-border");for(const name of BORDER_LEVELS)el.classList.remove(`status-${name}`);el.classList.add(`status-${BORDER_LEVELS.includes(level)?level:"unknown"}`)}
+function setPanelBorder(id,level,pulse=null){
+  const el=$("#"+id);
+  if(!el)return;
+  el.classList.add("status-border");
+  for(const name of BORDER_LEVELS)el.classList.remove(`status-${name}`);
+  for(const name of PULSE_CLASSES)el.classList.remove(name);
+  el.classList.add(`status-${BORDER_LEVELS.includes(level)?level:"unknown"}`);
+  if(pulse==="green")el.classList.add("pulse-green");
+  if(pulse==="yellow")el.classList.add("pulse-yellow");
+}
 function setText(id,value,level){const el=$("#"+id);el.textContent=value;if(level)el.className=level}
 function setStatus(id,item){const el=$("#"+id);el.className=`status ${item.level}`;el.replaceChildren(document.createElement("i"),document.createTextNode(item.label))}
 function setBar(id,item){const bar=$("#"+id+"-bar");setText(id,item.value===null?"—":`${item.value.toFixed(1)}%`,item.level);bar.className=`bar ${item.level}`;bar.querySelector("i").style.width=item.value===null?"0%":`${Math.min(100,Math.max(0,item.value))}%`}
@@ -128,7 +152,7 @@ function render(result){
   setPanelBorder("network-panel",model.network.level);
   setPanelBorder("power-panel",model.battery.border);
   setPanelBorder("resources-panel",model.resourcesBorder);
-  setPanelBorder("services-panel",model.services.border);
+  setPanelBorder("services-panel",model.services.border,model.services.pulse);
   const list=$("#services");
   list.replaceChildren();
   for(const item of model.services.items){

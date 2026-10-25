@@ -16,6 +16,8 @@ test("stale telemetry blanks Dell services but keeps Oracle backup status",()=>{
   assert.equal(m.services.items.find(x=>x.name==="IMFS Integration").status,"unknown");
   assert.equal(m.services.items.find(x=>x.name==="IMFS Integration Backup (Oracle)").status,"healthy");
   assert.equal(m.services.healthy,1);
+  assert.equal(m.services.border,"warning");
+  assert.equal(m.services.pulse,"yellow");
 });
 test("disconnected host is offline with unavailable telemetry",()=>{const m=viewModel({connection_state:"disconnected",payload:null});assert.equal(m.connectionLabel,"OFFLINE");assert.equal(m.resources.cpu.value,null);assert.equal(m.services.label,"0/7 Unknown")});
 test("missing battery and resources remain unavailable",()=>{const m=viewModel(telemetry({battery:{},resources:{}}));assert.equal(m.battery.percent,null);assert.equal(m.battery.power,"Unavailable");assert.equal(m.resources.cpu.value,null);assert.equal(m.resources.ram.value,null);assert.equal(m.resources.disk.value,null)});
@@ -26,11 +28,19 @@ test("Ollama running without healthcheck stays Running label but counts as healt
   assert.equal(running.services.healthy,7);
   assert.equal(running.services.label,"7/7 Healthy");
   assert.equal(running.services.border,"healthy");
+  assert.equal(running.services.pulse,null);
   assert.equal(running.services.level,"good");
   const stopped=viewModel(telemetry({services:{items:[...names.slice(0,5).map(name=>({name,status:"healthy"})),{name:"Ollama",status:"stopped"},{name:"IMFS Integration Backup (Oracle)",status:"healthy",role:"backup"}]}}));
   assert.equal(stopped.services.items.find(x=>x.name==="Ollama").status,"stopped");
   assert.equal(stopped.services.healthy,6);
-  assert.equal(stopped.services.border,"critical");
+  assert.equal(stopped.services.border,"healthy");
+  assert.equal(stopped.services.pulse,"green");
+  const backupOnlyDown=viewModel(telemetry({services:{items:[...names.slice(0,6).map(name=>({name,status:name==="Ollama"?"no_check":"healthy"})),{name:"IMFS Integration Backup (Oracle)",status:"stopped",role:"backup"}]}}));
+  assert.equal(backupOnlyDown.services.border,"healthy");
+  assert.equal(backupOnlyDown.services.pulse,"green");
+  const allDown=viewModel(telemetry({services:{items:names.map(name=>({name,status:"stopped",...(name==="IMFS Integration Backup (Oracle)"?{role:"backup"}:{})}))}}));
+  assert.equal(allDown.services.border,"critical");
+  assert.equal(allDown.services.pulse,null);
   const missing=viewModel(telemetry({services:{items:names.slice(0,5).map(name=>({name,status:"healthy"}))}}));
   assert.equal(missing.services.items.find(x=>x.name==="Ollama").status,"unknown");
   assert.equal(missing.services.items.find(x=>x.name==="IMFS Integration Backup (Oracle)").status,"unknown");
@@ -54,4 +64,6 @@ test("Oracle backup stays visible when Dell connection is offline",()=>{
   assert.equal(m.services.items.find(x=>x.name==="IMFS Integration").status,"unknown");
   assert.equal(m.services.items.find(x=>x.name==="IMFS Integration Backup (Oracle)").status,"healthy");
   assert.equal(m.services.label,"1/7 Healthy");
+  assert.equal(m.services.border,"warning");
+  assert.equal(m.services.pulse,"yellow");
 });

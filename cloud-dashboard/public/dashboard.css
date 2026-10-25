@@ -169,6 +169,35 @@ button { cursor: pointer; }
   box-shadow: none;
 }
 
+@keyframes panel-border-pulse-green {
+  0%, 100% {
+    border-color: #3d9b74;
+    box-shadow: inset 0 0 0 1px rgba(92, 201, 138, .16), 0 0 0 0 rgba(92, 201, 138, 0);
+  }
+  50% {
+    border-color: #7ee0a8;
+    box-shadow: inset 0 0 0 1px rgba(92, 201, 138, .35), 0 0 12px 0 rgba(92, 201, 138, .28);
+  }
+}
+@keyframes panel-border-pulse-yellow {
+  0%, 100% {
+    border-color: #8b641d;
+    box-shadow: inset 0 0 0 1px rgba(229, 172, 82, .12), 0 0 0 0 rgba(229, 172, 82, 0);
+  }
+  50% {
+    border-color: #e5ac52;
+    box-shadow: inset 0 0 0 1px rgba(229, 172, 82, .35), 0 0 12px 0 rgba(229, 172, 82, .28);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .status-border.pulse-green {
+    animation: panel-border-pulse-green 1.4s ease-in-out infinite;
+  }
+  .status-border.pulse-yellow {
+    animation: panel-border-pulse-yellow 1.4s ease-in-out infinite;
+  }
+}
+
 .panel-head {
   display: flex;
   align-items: flex-start;
