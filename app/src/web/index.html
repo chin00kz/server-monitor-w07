@@ -8,13 +8,31 @@
 
 :root {
   color-scheme: dark;
-  --bg: #0b1018;
-  --card: #141c27;
-  --line: #263244;
-  --text: #edf3fa;
-  --mute: #91a0b3;
-  --acc: #64b5f6;
-  --green: #55d6a0;
+  /* Industrial console tokens (single source; later blocks refine components) */
+  --bg: #080b10;
+  --card: #10161e;
+  --panel: #10161e;
+  --panel-raised: #151d27;
+  --panel-deep: #0c1118;
+  --line: #273544;
+  --line-bright: #3a4b5d;
+  --text: #e8edf2;
+  --mute: #8292a3;
+  --soft: #aebbc7;
+  --acc: #f28c28;
+  --acc-soft: #ffb45e;
+  --green: #5cc98a;
+  --amber: #e5ac52;
+  --red: #e16b67;
+  --blue: #79a9c8;
+  --status-healthy: #2f735b;
+  --status-warning: #8b641d;
+  --status-critical: #8a3c3c;
+  --status-info: #375d75;
+  --status-unknown: #3b4b59;
+  --radius: 3px;
+  --font: "Segoe UI", Ubuntu, system-ui, sans-serif;
+  --mono: Consolas, "Ubuntu Mono", ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -23,8 +41,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
+  font: 14px/1.5 var(--font);
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
            env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
@@ -696,18 +713,34 @@ button:hover { border-color: var(--acc); }
   content: "";
 }
 .docker-health-healthy { color: var(--green); background: rgba(92, 201, 138, .08); }
-.docker-health-neutral { color: #9aa7b3; background: rgba(154, 167, 179, .08); }
+.docker-health-neutral,
+.docker-health-info,
+.docker-health-unknown { color: #9aa7b3; background: rgba(154, 167, 179, .08); }
 .docker-health-warning { color: var(--amber); background: rgba(229, 172, 82, .09); }
-.docker-health-danger { color: var(--red); background: rgba(225, 107, 103, .09); }
+.docker-health-danger,
+.docker-health-critical { color: var(--red); background: rgba(225, 107, 103, .09); }
 
 #reliability-section #rel-container-list {
   margin-top: 12px;
 }
 #rel-container-list > div {
   padding: 14px;
-  background: #101519;
+  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 3px;
+}
+#rel-container-list > div.status-healthy {
+  border-color: #3d9b74 !important;
+  box-shadow: inset 0 0 0 1px rgba(92, 201, 138, .18);
+}
+#rel-container-list > div.status-warning {
+  border-color: var(--status-warning) !important;
+  box-shadow: inset 0 0 0 1px rgba(229, 172, 82, .14);
+}
+#rel-container-list > div.status-critical,
+#rel-container-list > div.status-danger {
+  border-color: #c45a56 !important;
+  box-shadow: inset 0 0 0 1px rgba(225, 107, 103, .22);
 }
 #rel-container-list > div > span,
 #rel-container-list > div > strong {
@@ -767,19 +800,13 @@ button:hover { border-color: var(--acc); }
   overflow-wrap: anywhere;
 }
 
-#alert-history-section > div:nth-child(2),
 #postgres-health-section > div:nth-child(2) {
-  padding: 16px clamp(16px, 3vw, 38px) 30px !important;
-}
-#alert-history-list > div {
-  background: var(--card);
-  border-color: var(--line) !important;
-  border-radius: 5px !important;
+  padding: 16px 0 30px !important;
 }
 #postgres-health-list > div {
-  background: var(--card);
+  background: var(--panel);
   border-color: var(--line);
-  border-radius: 5px !important;
+  border-radius: 3px;
 }
 
 #charts-section .grid {
@@ -941,11 +968,30 @@ header.topbar #range:focus, header.topbar #out:focus, .refresh-btn:focus { outli
 .card { padding: 17px; }
 .stats .card { min-height: 124px; position: relative; overflow: hidden; }
 .stats .card::after { display: none; }
-.status-border.status-healthy { border-color: var(--status-healthy) !important; }
-.status-border.status-warning { border-color: var(--status-warning) !important; }
-.status-border.status-critical { border-color: var(--status-critical) !important; }
-.status-border.status-info { border-color: var(--status-info) !important; }
-.status-border.status-unknown { border-color: var(--status-unknown) !important; }
+.status-border {
+  border-width: 1px;
+  border-style: solid;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.status-border.status-healthy {
+  border-color: #3d9b74 !important;
+  box-shadow: inset 0 0 0 1px rgba(92, 201, 138, .18);
+}
+.status-border.status-warning {
+  border-color: var(--status-warning) !important;
+  box-shadow: inset 0 0 0 1px rgba(229, 172, 82, .14);
+}
+.status-border.status-critical,
+.status-border.status-danger {
+  border-color: #c45a56 !important;
+  box-shadow: inset 0 0 0 1px rgba(225, 107, 103, .22);
+}
+.status-border.status-info {
+  border-color: var(--status-info) !important;
+}
+.status-border.status-unknown {
+  border-color: var(--status-unknown) !important;
+}
 .card h2 { color: var(--mute); font-size: .67rem; letter-spacing: .13em; }
 .big { color: var(--text); font-family: Consolas, monospace; font-size: 1.72rem; letter-spacing: -.04em; }
 .sub { margin-top: 8px; color: var(--mute); font-size: .72rem; }
@@ -973,9 +1019,9 @@ header.topbar #range:focus, header.topbar #out:focus, .refresh-btn:focus { outli
 .legend { font-family: Consolas, monospace; font-size: .69rem; }
 canvas { opacity: .92; }
 .tip { border-radius: 2px; background: #0b1017; font-family: Consolas, monospace; }
-#alert-history-section > div:not(.section-heading), #postgres-health-section > div:not(.section-heading) { padding: 18px 0 0 !important; }
-#alert-history-list > div, #postgres-health-list > div { background: var(--panel); border-color: var(--line) !important; border-radius: 3px !important; }
-#alert-history-status, #postgres-health-status { color: var(--mute); font-size: .78rem; }
+#postgres-health-section > div:not(.section-heading) { padding: 18px 0 0 !important; }
+#postgres-health-list > div { background: var(--panel); border-radius: 3px; }
+#alert-history-status, #postgres-health-status { color: var(--mute); font-size: .78rem; margin: 0 0 12px; }
 .refresh-spinner { display: block; width: 13px; height: 13px; border: 2px solid rgba(34, 21, 9, .3); border-top-color: #221509; border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1050px) {
@@ -1037,6 +1083,221 @@ canvas { opacity: .92; }
   .backup-actions { align-items: stretch; flex-direction: column; }
 }
 
+/* ——— Polish layer (industrial console) ——— */
+header.topbar {
+  flex-wrap: wrap;
+  row-gap: 10px;
+  align-items: center;
+}
+.topbar-actions { margin-left: auto; }
+#refresh-status,
+.refresh-status {
+  position: static;
+  order: 5;
+  flex: 1 1 100%;
+  max-width: none;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-deep);
+  color: var(--mute);
+  font-family: var(--mono);
+  font-size: .72rem;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.refresh-status.err {
+  color: var(--red);
+  border-color: rgba(225, 107, 103, .35);
+  background: rgba(225, 107, 103, .06);
+}
+.health-state {
+  white-space: normal;
+  max-width: 220px;
+  line-height: 1.25;
+}
+.health-state[data-metrics="live"] { color: var(--green); }
+.health-state[data-metrics="live"]::before {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(92, 201, 138, .12);
+}
+.health-state[data-metrics="stale"] { color: var(--amber); }
+.health-state[data-metrics="stale"]::before {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(229, 172, 82, .14);
+}
+.health-state[data-metrics="unavailable"] { color: var(--mute); }
+.health-state[data-metrics="unavailable"]::before {
+  background: var(--mute);
+  box-shadow: 0 0 0 3px rgba(130, 146, 163, .12);
+}
+.side-status-row strong[data-metrics="live"] { color: var(--green); }
+.side-status-row strong[data-metrics="stale"] { color: var(--amber); }
+.side-status-row strong[data-metrics="unavailable"] { color: var(--mute); }
+.side-status-row strong { font-family: var(--mono); font-size: .72rem; }
+.content { padding-top: 22px; }
+.section-heading {
+  gap: 12px;
+  margin-bottom: 4px;
+  padding-bottom: 14px;
+}
+.docker-card-controls {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.docker-log-panel {
+  max-width: 100%;
+  overflow: auto;
+}
+.docker-log-panel pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.network-status-grid > div,
+.summary-card,
+.card {
+  min-width: 0;
+}
+.big, .summary-value, .telemetry-value, .maintenance-metrics strong {
+  font-family: var(--mono);
+}
+@media (max-width: 780px) {
+  .topbar-actions { margin-left: 0; }
+  .health-state { max-width: none; }
+}
+
+#charts-section .grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px 0 0;
+  align-items: stretch;
+}
+#charts-section .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 310px;
+  padding: 16px 16px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: none;
+}
+#charts-section .card h2 {
+  margin: 0 0 8px;
+  color: var(--mute);
+  font-size: .68rem;
+  letter-spacing: .14em;
+}
+#charts-section .legend {
+  min-height: 1.4em;
+  margin-bottom: 10px;
+  color: var(--soft);
+  font-family: var(--mono);
+  font-size: .78rem;
+}
+#charts-section .legend .dot {
+  width: 9px;
+  height: 9px;
+  vertical-align: -1px;
+}
+#charts-section .cv { flex: 1; min-height: 220px; }
+#charts-section canvas { opacity: 1; }
+#charts-section .tip {
+  border: 1px solid var(--line-bright);
+  border-radius: 3px;
+  background: rgba(8, 11, 16, .97);
+  font-family: var(--mono);
+  font-size: .72rem;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .4);
+}
+
+#rel-network-panel,
+#rel-storage-panel,
+#rel-docker-panel > .network-status-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+#rel-container-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+}
+
+.events-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 4px 0 14px;
+}
+.events-toolbar input,
+.events-toolbar select {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: .82rem;
+}
+.events-toolbar input { flex: 1 1 240px; min-width: 180px; }
+.events-toolbar select { flex: 0 0 auto; }
+.events-toolbar input:focus,
+.events-toolbar select:focus {
+  outline: 2px solid rgba(242, 140, 40, .5);
+  outline-offset: 1px;
+}
+.events-list { display: grid; gap: 10px; }
+.event-card {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.event-card.status-critical {
+  border-color: #c45a56;
+  box-shadow: inset 0 0 0 1px rgba(225, 107, 103, .18);
+}
+.event-card.status-warning { border-color: var(--status-warning); }
+.event-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.event-severity {
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+.event-severity.critical { color: var(--red); }
+.event-severity.warning { color: var(--amber); }
+.event-severity.info { color: var(--soft); }
+.event-delivery { color: var(--mute); font-size: .72rem; }
+.event-message {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: .9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.event-time {
+  margin-top: 8px;
+  color: var(--mute);
+  font-family: var(--mono);
+  font-size: .72rem;
+}
+
+@media (max-width: 900px) {
+  #charts-section .grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 </style></head>
 <body>
 <div class="app-shell">
@@ -1051,7 +1312,7 @@ canvas { opacity: .92; }
     <div class="side-status-title">Node status</div>
     <div class="side-status-row"><span>Host</span><strong>ONLINE</strong></div>
     <div class="side-status-row"><span>Uptime</span><strong id="side-uptime">Loading</strong></div>
-    <div class="side-status-row"><span>Container metrics</span><strong id="side-health">Unavailable</strong></div>
+    <div class="side-status-row"><span>Container metrics</span><strong id="side-health" data-metrics="unavailable">Unavailable</strong></div>
   </div>
   <div class="sidebar-footer"><small>server-monitor / w07</small><button id="out">Log out</button></div>
 </aside>
@@ -1062,7 +1323,7 @@ canvas { opacity: .92; }
     <div class="telemetry"><span class="telemetry-label">Platform</span><span class="telemetry-value">Ubuntu host</span></div>
     <div class="telemetry"><span class="telemetry-label">Uptime</span><span class="telemetry-value" id="header-uptime">Loading</span></div>
     <div class="telemetry"><span class="telemetry-label">CPU / RAM</span><span class="telemetry-value" id="header-load">Loading</span></div>
-    <div class="health-state" id="header-health">Container metrics unavailable</div>
+    <div class="health-state" id="header-health" data-metrics="unavailable">Container metrics unavailable</div>
   </div>
   <div class="topbar-actions">
     <select id="range" aria-label="Chart time range">
@@ -1249,12 +1510,23 @@ canvas { opacity: .92; }
 
 <section id="alert-history-section">
   <div class="section-heading">
-    <h2>Alert History</h2>
+    <div>
+      <div class="eyebrow">OPERATIONS LOG</div>
+      <h2>Alert History</h2>
+      <p>Recent Telegram alert events · newest first</p>
+    </div>
   </div>
-  <div style="padding:16px 0">
-    <p id="alert-history-status">Loading recent alerts...</p>
-    <div id="alert-history-list" style="display:grid;gap:10px"></div>
+  <div class="events-toolbar">
+    <input id="alert-search" type="search" placeholder="Search alerts…" autocomplete="off" aria-label="Search alerts">
+    <select id="alert-severity-filter" aria-label="Filter by severity">
+      <option value="all">All severities</option>
+      <option value="critical">Critical</option>
+      <option value="warning">Warning</option>
+      <option value="info">Info</option>
+    </select>
   </div>
+  <p id="alert-history-status">Loading recent alerts...</p>
+  <div id="alert-history-list" class="events-list"></div>
 </section>
 
 
@@ -1321,7 +1593,7 @@ canvas { opacity: .92; }
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const COLORS=["#58a6ff","#3fb950","#d29922","#f85149","#bc8cff","#39c5cf","#ff7b72","#a5d6ff","#7ee787","#ffa657"];
+const COLORS=["#79b8ff","#5cc98a","#e5ac52","#e16b67","#c4a1ff","#5ec8d8","#ff9b7a","#a8d4ff","#7ee787","#ffb45e"];
 const bytesF=v=>{const u=["B/s","KB/s","MB/s","GB/s"];let i=0;while(Math.abs(v)>=1024&&i<3){v/=1024;i++}return v.toFixed(i>0&&Math.abs(v)<10?1:0)+" "+u[i]};
 const FMT={pct:v=>v.toFixed(v<10?1:0)+"%",c:v=>v.toFixed(0)+"°C",bytes:bytesF,gib:v=>(v/2**30).toFixed(2)+" GiB",
   rpm:v=>Math.round(v)+" rpm",mhz:v=>Math.round(v)+" MHz",w:v=>v.toFixed(1)+" W",num:v=>v.toFixed(2),iops:v=>v.toFixed(v<10?1:0)+"/s"};
@@ -1355,8 +1627,15 @@ function refreshTelemetryHealthIndicator() {
       detail = `Container metrics stale (${Math.max(0, Math.floor(age))}s)`;
     }
   }
-  if (side) side.textContent = label;
-  if (header) header.textContent = detail;
+  const metricsKey = label.toLowerCase();
+  if (side) {
+    side.textContent = label;
+    side.dataset.metrics = metricsKey;
+  }
+  if (header) {
+    header.textContent = detail;
+    header.dataset.metrics = metricsKey;
+  }
 }
 
 const STATUS_LEVELS = ["healthy", "info", "unknown", "warning", "critical"];
@@ -1392,7 +1671,9 @@ function setStatusBorder(element, level, key=null) {
   if (!element) return;
   const resolved = key ? stableStatus(key, level) : normalizeStatus(level);
   element.classList.add("status-border");
-  for (const name of STATUS_LEVELS) element.classList.remove(`status-${name}`);
+  for (const name of [...STATUS_LEVELS, "danger", "neutral"]) {
+    element.classList.remove(`status-${name}`);
+  }
   element.classList.add(`status-${resolved}`);
 }
 
@@ -1615,32 +1896,56 @@ class Chart{
   }
   draw(){
     const d=this.data;if(!d||!this.wrap.clientWidth)return;
-    const S=this.cfg.series,f=FMT[this.cfg.fmt||"num"],W=this.wrap.clientWidth,H=170,dpr=window.devicePixelRatio||1;
+    const S=this.cfg.series,f=FMT[this.cfg.fmt||"num"];
+    const W=this.wrap.clientWidth,H=Math.max(200,this.wrap.clientHeight||220);
+    const dpr=window.devicePixelRatio||1;
     const cv=this.cv;cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+"px";cv.style.height=H+"px";
     const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);
-    const L=58,R=8,T=8,B=22,pw=W-L-R,ph=H-T-B;
+    const L=62,R=10,T=10,B=26,pw=W-L-R,ph=H-T-B;
     let lo=Infinity,hi=-Infinity;
     S.forEach(s=>(d.series[s.key]||[]).forEach(v=>{if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}}));
-    if(!isFinite(lo)){g.fillStyle="#8b949e";g.font="13px system-ui";g.fillText("collecting data…",L,H/2);this.legend(null);return}
+    if(!isFinite(lo)){
+      g.fillStyle="#8292a3";g.font="13px Segoe UI, system-ui, sans-serif";
+      g.fillText("collecting data…",L,H/2);this.legend(null);return;
+    }
     const span=(hi-lo)||Math.max(Math.abs(hi),1)*0.1;
     lo=this.cfg.min!=null?this.cfg.min:lo-span*0.1;
     hi=this.cfg.max!=null?this.cfg.max:hi+span*0.15;
     const floor=this.cfg.floor||1;if(hi<lo+floor)hi=lo+floor;
-    const t1=d.t[d.t.length-1],t0=t1-this.hours*3600;
+    const t1=d.t[d.t.length-1];
+    let t0=t1-this.hours*3600;
+    let firstTs=null;
+    S.forEach(s=>{
+      const vals=d.series[s.key]||[];
+      d.t.forEach((t,j)=>{if(vals[j]!=null&&(firstTs==null||t<firstTs))firstTs=t});
+    });
+    if(firstTs!=null&&firstTs>t0){
+      const pad=Math.max((t1-firstTs)*0.03,120);
+      t0=Math.max(t0,firstTs-pad);
+    }
+    if(t1<=t0)t0=t1-Math.max(this.hours*3600,3600);
     const x=t=>L+(t-t0)/(t1-t0)*pw,y=v=>T+ph-(v-lo)/(hi-lo)*ph;
-    g.font="11px system-ui";g.fillStyle="#8b949e";g.lineWidth=1;
-    for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,yy=y(v);
-      g.strokeStyle="#262d36";g.beginPath();g.moveTo(L,yy);g.lineTo(W-R,yy);g.stroke();
-      g.textAlign="right";g.fillText(f(v),L-6,yy+4)}
-    for(let i=0;i<=3;i++){const tt=t0+(t1-t0)*i/3;
-      g.textAlign=i===0?"left":i===3?"right":"center";g.fillText(fmtTime(tt,this.hours),x(tt),H-6)}
+    g.font="11px Consolas, monospace";g.fillStyle="#aebbc7";g.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const v=lo+(hi-lo)*i/4,yy=y(v);
+      g.strokeStyle=i===0||i===4?"#3a4b5d":"#273544";
+      g.beginPath();g.moveTo(L,yy);g.lineTo(W-R,yy);g.stroke();
+      g.textAlign="right";g.fillText(f(v),L-8,yy+4);
+    }
+    for(let i=0;i<=3;i++){
+      const tt=t0+(t1-t0)*i/3;
+      g.textAlign=i===0?"left":i===3?"right":"center";
+      g.fillText(fmtTime(tt,this.hours),x(tt),H-7);
+    }
     S.forEach((s,i)=>{
       const vals=d.series[s.key]||[];
-      g.strokeStyle=s.color||COLORS[i%COLORS.length];g.lineWidth=1.6;g.beginPath();
+      const color=s.color||COLORS[i%COLORS.length];
+      g.strokeStyle=color;g.lineWidth=2.15;g.lineJoin="round";g.lineCap="round";g.beginPath();
       let pen=false;
       d.t.forEach((t,j)=>{
         const v=vals[j];
         if(v==null||(j>0&&t-d.t[j-1]>3*d.bucket)){pen=false;if(v==null)return}
+        if(t<t0){pen=false;return}
         const X=x(t),Y=y(v);
         if(!pen){g.moveTo(X,Y);pen=true}else g.lineTo(X,Y);
       });
@@ -1648,16 +1953,25 @@ class Chart{
     });
     let hj=null;
     if(this.hx!=null&&this.hx>=L&&this.hx<=W-R){
-      let best=1e9;d.t.forEach((t,j)=>{const dd=Math.abs(x(t)-this.hx);if(dd<best){best=dd;hj=j}});
+      let best=1e9;
+      d.t.forEach((t,j)=>{
+        if(t<t0)return;
+        const dd=Math.abs(x(t)-this.hx);
+        if(dd<best){best=dd;hj=j}
+      });
     }
     if(hj!=null){
       const X=x(d.t[hj]);
-      g.strokeStyle="#8b949e";g.lineWidth=1;g.beginPath();g.moveTo(X,T);g.lineTo(X,T+ph);g.stroke();
+      g.strokeStyle="#8292a3";g.lineWidth=1;g.setLineDash([3,3]);
+      g.beginPath();g.moveTo(X,T);g.lineTo(X,T+ph);g.stroke();g.setLineDash([]);
       let html=`<b>${fmtTime(d.t[hj],this.hours)}</b>`;
-      S.forEach((s,i)=>{const v=(d.series[s.key]||[])[hj];if(v==null)return;
+      S.forEach((s,i)=>{
+        const v=(d.series[s.key]||[])[hj];if(v==null)return;
         const c=s.color||COLORS[i%COLORS.length];
-        g.fillStyle=c;g.beginPath();g.arc(X,y(v),3,0,7);g.fill();
-        html+=`<br><span class="dot" style="background:${c}"></span>${esc(s.label)}: ${f(v)}`});
+        g.fillStyle="#080b10";g.beginPath();g.arc(X,y(v),5,0,7);g.fill();
+        g.fillStyle=c;g.beginPath();g.arc(X,y(v),3.5,0,7);g.fill();
+        html+=`<br><span class="dot" style="background:${c}"></span>${esc(s.label)}: ${f(v)}`;
+      });
       this.tip.innerHTML=html;this.tip.style.display="block";
       const tw=this.tip.offsetWidth;this.tip.style.left=Math.max(0,Math.min(this.hx+12,W-tw))+"px";
     }else this.tip.style.display="none";
@@ -2389,10 +2703,105 @@ async function pollPostgresHealth(){
 
 setInterval(pollPostgresHealth, 30000);
 
-async function pollAlertHistory(){
+let alertHistoryCache = [];
+
+function alertSeverityKey(level) {
+  const raw = String(level || "info").toLowerCase();
+  if (raw === "critical" || raw === "danger" || raw === "error") return "critical";
+  if (raw === "warning" || raw === "warn") return "warning";
+  return "info";
+}
+
+function renderAlertHistory() {
   const status = document.getElementById("alert-history-status");
   const list = document.getElementById("alert-history-list");
+  const searchEl = document.getElementById("alert-search");
+  const filterEl = document.getElementById("alert-severity-filter");
   if (!status || !list) return;
+
+  const query = String(searchEl?.value || "").trim().toLowerCase();
+  const severityFilter = String(filterEl?.value || "all").toLowerCase();
+
+  list.replaceChildren();
+
+  if (!alertHistoryCache.length) {
+    status.textContent = "No alerts recorded yet.";
+    return;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Colombo",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+
+  const filtered = alertHistoryCache.filter(event => {
+    const sev = alertSeverityKey(event.severity);
+    if (severityFilter !== "all" && sev !== severityFilter) return false;
+    if (!query) return true;
+    const hay = [
+      event.message,
+      event.severity,
+      event.delivery,
+      event.source
+    ].map(v => String(v || "").toLowerCase()).join(" ");
+    return hay.includes(query);
+  });
+
+  if (!filtered.length) {
+    status.textContent = query || severityFilter !== "all"
+      ? `No alerts match (${alertHistoryCache.length} total).`
+      : "No alerts recorded yet.";
+    return;
+  }
+
+  status.textContent = filtered.length === alertHistoryCache.length
+    ? `${filtered.length} alert${filtered.length === 1 ? "" : "s"} · newest first`
+    : `Showing ${filtered.length} of ${alertHistoryCache.length}`;
+
+  for (const event of filtered) {
+    const sev = alertSeverityKey(event.severity);
+    const item = document.createElement("article");
+    item.className = `event-card status-border status-${sev === "info" ? "info" : sev}`;
+
+    const head = document.createElement("div");
+    head.className = "event-head";
+
+    const severity = document.createElement("span");
+    severity.className = `event-severity ${sev}`;
+    severity.textContent = String(event.severity || "INFO").toUpperCase();
+
+    const delivery = document.createElement("span");
+    delivery.className = "event-delivery";
+    delivery.textContent =
+      event.delivery === "delivered" ? "Telegram delivered" :
+      event.delivery === "queued" ? "Telegram queued" : "Delivery unknown";
+
+    head.append(severity, delivery);
+
+    const message = document.createElement("div");
+    message.className = "event-message";
+    message.textContent = String(event.message || "");
+
+    const timestamp = document.createElement("div");
+    timestamp.className = "event-time";
+    const date = new Date(event.timestamp);
+    timestamp.textContent = Number.isNaN(date.getTime())
+      ? "Time unavailable"
+      : formatter.format(date) + " Sri Lanka time";
+
+    item.append(head, message, timestamp);
+    list.appendChild(item);
+  }
+}
+
+async function pollAlertHistory(){
+  const status = document.getElementById("alert-history-status");
+  if (!status) return;
 
   try {
     const response = await fetch("/api/alerts/history", {cache:"no-store"});
@@ -2409,69 +2818,16 @@ async function pollAlertHistory(){
       throw new Error("Alert history unavailable");
     }
 
-    list.replaceChildren();
-
-    if (data.events.length === 0) {
-      status.textContent = "No alerts recorded yet.";
-      return;
-    }
-
-    status.textContent = "Recent Telegram alert events · newest first";
-
-    const formatter = new Intl.DateTimeFormat("en-GB", {
-      timeZone:"Asia/Colombo",
-      day:"2-digit",
-      month:"short",
-      hour:"2-digit",
-      minute:"2-digit",
-      second:"2-digit",
-      hour12:false
-    });
-
-    for (const event of data.events) {
-      const item = document.createElement("div");
-      item.style.cssText =
-        "padding:12px 14px;border:1px solid var(--border, #444);border-radius:10px";
-
-      const heading = document.createElement("div");
-      heading.style.cssText =
-        "display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-weight:600";
-
-      const severity = document.createElement("span");
-      const level = String(event.severity || "").toUpperCase();
-      severity.textContent = level;
-      severity.style.color =
-        level === "CRITICAL" ? "#ef4444" :
-        level === "WARNING" ? "#f59e0b" : "inherit";
-
-      const delivery = document.createElement("span");
-      delivery.textContent =
-        event.delivery === "delivered" ? "Telegram delivered" :
-        event.delivery === "queued" ? "Telegram queued" : "Delivery unknown";
-
-      heading.append(severity, delivery);
-
-      const message = document.createElement("div");
-      message.style.marginTop = "7px";
-      message.textContent = String(event.message || "");
-
-      const timestamp = document.createElement("div");
-      timestamp.style.cssText =
-        "margin-top:7px;font-size:12px;opacity:.7";
-
-      const date = new Date(event.timestamp);
-      timestamp.textContent = Number.isNaN(date.getTime())
-        ? "Time unavailable"
-        : formatter.format(date) + " Sri Lanka time";
-
-      item.append(heading, message, timestamp);
-      list.appendChild(item);
-    }
+    alertHistoryCache = data.events;
+    renderAlertHistory();
   } catch (error) {
     status.textContent = "Alert history temporarily unavailable.";
     throw error;
   }
 }
+
+document.getElementById("alert-search")?.addEventListener("input", renderAlertHistory);
+document.getElementById("alert-severity-filter")?.addEventListener("change", renderAlertHistory);
 
 setInterval(pollAlertHistory, 30000);
 
