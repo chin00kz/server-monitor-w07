@@ -63,7 +63,7 @@ function mountIcons(root=document){root.querySelectorAll("[data-icon]").forEach(
 function roleLabel(role){return({PRIMARY:"Primary link",STANDBY:"Backup link",OFFLINE:"Offline",UNKNOWN:"Unknown"})[role]||role}
 function serviceMeta(name){
   if(name==="Ollama")return{icon:"ai",kind:"AI runtime",role:null};
-  if(name===BACKUP_SERVICE_NAME)return{icon:"database",kind:"PostgreSQL",role:"Backup"};
+  if(name==="IMFS Integration Backup")return{icon:"database",kind:"PostgreSQL",role:"Backup"};
   return{icon:"database",kind:"PostgreSQL",role:null};
 }
 function setPanelBorder(id,level){const el=$("#"+id);if(!el)return;el.classList.add("status-border");for(const name of BORDER_LEVELS)el.classList.remove(`status-${name}`);el.classList.add(`status-${BORDER_LEVELS.includes(level)?level:"unknown"}`)}
