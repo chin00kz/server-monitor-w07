@@ -1,5 +1,7 @@
 const LIVE_AFTER_SECONDS = 90;
 const DISCONNECTED_AFTER_SECONDS = 180;
+// Hard cap against oversized/malicious payloads. Keep >= publisher SERVICE_NAMES length.
+const MAX_SERVICE_ITEMS = 8;
 
 function classifyReceipt(receivedAt, now = Date.now()) {
   const timestamp = Date.parse(receivedAt || "");
@@ -27,10 +29,12 @@ function sanitizePayload(payload) {
   const battery = payload.battery && typeof payload.battery === "object" ? payload.battery : {};
   const resources = payload.resources && typeof payload.resources === "object" ? payload.resources : {};
   const serviceData = payload.services && typeof payload.services === "object" ? payload.services : {};
-  const items = Array.isArray(serviceData.items) ? serviceData.items.slice(0, 5).map(item => ({
-    name: typeof item?.name === "string" ? item.name.slice(0, 32) : "Unknown",
-    status: serviceStatus(item?.status)
-  })) : [];
+  const items = Array.isArray(serviceData.items)
+    ? serviceData.items.slice(0, MAX_SERVICE_ITEMS).map(item => ({
+        name: typeof item?.name === "string" ? item.name.slice(0, 32) : "Unknown",
+        status: serviceStatus(item?.status)
+      }))
+    : [];
   return {
     node: {
       id: typeof node.id === "string" ? node.id.slice(0, 64) : "unknown",
@@ -56,8 +60,9 @@ function sanitizePayload(payload) {
     },
     services: {
       items,
-      healthy: Number.isInteger(serviceData.healthy) && serviceData.healthy >= 0 ? serviceData.healthy : 0,
-      total: Number.isInteger(serviceData.total) && serviceData.total >= 0 ? serviceData.total : items.length
+      // Recount from sanitized items so a truncated list cannot keep inflated counts.
+      healthy: items.filter(item => item.status === "healthy").length,
+      total: items.length
     }
   };
 }
@@ -65,6 +70,7 @@ function sanitizePayload(payload) {
 module.exports = {
   LIVE_AFTER_SECONDS,
   DISCONNECTED_AFTER_SECONDS,
+  MAX_SERVICE_ITEMS,
   classifyReceipt,
   sanitizePayload
 };

@@ -4,6 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>server-monitor</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 
 :root {
@@ -1834,10 +1835,18 @@ async function requestDockerAction(container, action, buttons, status, state, de
     if (response.status === 401) { location = "/login"; return; }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(result.detail || result.message || `HTTP ${response.status}`);
+      const detail = Array.isArray(result.detail)
+        ? result.detail.map(part => part.msg || part).join("; ")
+        : (result.detail || result.message || `HTTP ${response.status}`);
+      throw new Error(detail);
     }
     if (result.status === "failed") {
       throw new Error(result.message || "Docker action failed");
+    }
+    if (result.status === "pending") {
+      status.className = "docker-control-status error";
+      status.textContent = result.message || `${action} queued; host controller did not respond`;
+      return;
     }
     if (action === "logs") {
       logOutput.textContent = result.logs || "No recent logs.";

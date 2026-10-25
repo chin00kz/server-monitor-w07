@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Ubuntu Monitor local">
+  <!-- Industrial console mark: orange U plate (distinct from cloud circle favicon) -->
+  <path fill="#f28c28" d="M3 3h26v18.5L21.5 29H3z"/>
+  <path fill="#1b1209" d="M10.2 8.2h3.1v9.4c0 1.7.9 2.6 2.7 2.6s2.7-.9 2.7-2.6V8.2h3.1v9.6c0 3.5-2.1 5.5-5.8 5.5s-5.8-2-5.8-5.5z"/>
+</svg>

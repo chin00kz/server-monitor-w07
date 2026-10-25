@@ -22,6 +22,7 @@ SERVICE_NAMES = (
     ("imfs-pg-m2", "IMFS M2"),
     ("imfs-pg-m3", "IMFS M3"),
     ("imfs-pg-m4", "IMFS M4"),
+    ("homelab-ollama", "Ollama"),
 )
 
 

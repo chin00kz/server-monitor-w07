@@ -158,6 +158,13 @@ def logout(request: Request, response: Response):
 
 
 # ---------- pages ----------
+@app.get("/favicon.svg")
+@app.get("/favicon.ico")
+def favicon():
+    """Browser tab icon; .ico alias serves the same SVG for older agents."""
+    return FileResponse(WEB / "favicon.svg", media_type="image/svg+xml")
+
+
 @app.get("/login")
 def login_page():
     return FileResponse(WEB / "login.html")
@@ -201,6 +208,8 @@ DOCKER_CONTROL_ACTIONS = {"start", "stop", "restart", "logs"}
 DOCKER_CONTROL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 DOCKER_CONTROL_EXCLUDED = {"server-monitor"}
 DOCKER_CONTROL_LOG_ONLY = {"server-monitor"}
+# Host path unit should consume request.json quickly; abandon abandoned files.
+DOCKER_CONTROL_STALE_SECONDS = 90
 last_docker_action_time: dict[str, float] = {}
 docker_control_lock = threading.Lock()
 BACKUP_CONTROL_ROOT = Path("/data/backup-control")
@@ -249,6 +258,51 @@ def read_control_status():
         return value if isinstance(value, dict) else None
     except (OSError, ValueError, TypeError):
         return None
+
+
+def _docker_request_age_seconds(now: float) -> float | None:
+    """Age of the pending request.json, or None if it is missing."""
+    if not DOCKER_CONTROL_REQUEST.exists():
+        return None
+    try:
+        payload = json.loads(DOCKER_CONTROL_REQUEST.read_text())
+        created = payload.get("created_at") if isinstance(payload, dict) else None
+        if isinstance(created, (int, float)):
+            return max(0.0, now - float(created))
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        return max(0.0, now - DOCKER_CONTROL_REQUEST.stat().st_mtime)
+    except OSError:
+        return DOCKER_CONTROL_STALE_SECONDS + 1.0
+
+
+def clear_stale_docker_request(now: float) -> bool:
+    """Drop abandoned request.json so a dead host controller cannot brick controls."""
+    age = _docker_request_age_seconds(now)
+    if age is None or age < DOCKER_CONTROL_STALE_SECONDS:
+        return False
+    payload = None
+    try:
+        value = json.loads(DOCKER_CONTROL_REQUEST.read_text())
+        if isinstance(value, dict):
+            payload = value
+    except (OSError, ValueError, TypeError):
+        payload = None
+    try:
+        DOCKER_CONTROL_REQUEST.unlink(missing_ok=True)
+    except OSError:
+        return False
+    write_control_json(DOCKER_CONTROL_STATUS, {
+        "request_id": (payload or {}).get("request_id"),
+        "container": (payload or {}).get("container"),
+        "action": (payload or {}).get("action"),
+        "status": "failed",
+        "message": "Previous Docker request was abandoned (host controller did not consume it)",
+        "finished_at": int(now),
+        "timestamp": int(now),
+    })
+    return True
 
 
 @app.get("/api/backups", dependencies=[Depends(require_login)])
@@ -454,8 +508,12 @@ def docker_control(body: DockerControlRequest):
 
     now = time.time()
     with docker_control_lock:
+        clear_stale_docker_request(now)
         if DOCKER_CONTROL_REQUEST.exists():
-            raise HTTPException(409, "a Docker action is already queued")
+            raise HTTPException(
+                409,
+                "a Docker action is already queued — wait ~90s or check host docker-control.service",
+            )
         status = read_control_status()
         if status and status.get("status") in {"queued", "running"}:
             status_time = status.get("timestamp", 0)
@@ -475,6 +533,7 @@ def docker_control(body: DockerControlRequest):
         write_control_json(DOCKER_CONTROL_STATUS, {
             **request,
             "status": "queued",
+            "timestamp": int(now),
             "message": "Docker action queued",
         })
         write_control_json(DOCKER_CONTROL_REQUEST, request)
@@ -488,12 +547,14 @@ def docker_control(body: DockerControlRequest):
         if status.get("status") in {"completed", "failed"}:
             return status
 
+    # Leave request.json for a late host controller, but mark status so the UI
+    # is clear that nothing acknowledged yet. Stale cleanup unbricks retries.
     return {
         "request_id": request_id,
         "container": container,
         "action": action,
         "status": "pending",
-        "message": "Docker controller did not acknowledge within the timeout",
+        "message": "Docker controller did not acknowledge within the timeout — is server-docker-control.path active?",
     }
 
 

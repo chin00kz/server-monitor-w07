@@ -55,10 +55,67 @@ class CloudPublisherTests(unittest.TestCase):
             self.assertEqual(payload["resources"]["disk_percent"], 22)
             self.assertEqual(payload["battery"]["activity"], "unknown")
             self.assertEqual(payload["services"]["healthy"], 1)
-            self.assertEqual(payload["services"]["total"], 5)
+            self.assertEqual(payload["services"]["total"], 6)
+            by_name = {item["name"]: item["status"] for item in payload["services"]["items"]}
+            self.assertEqual(by_name["IMFS M1"], "healthy")
+            self.assertEqual(by_name["IMFS M2"], "no_check")
+            self.assertEqual(by_name["Ollama"], "unknown")
+
+    def test_ollama_running_stopped_and_missing_states(self):
+        base = {
+            "timestamp": 100,
+            "network": {"preferred_interface": "enp1s0", "connectivity": {}},
+            "storage": {},
+            "docker": {"containers": {
+                "imfs-pg-integration": {"state": "running", "health": "healthy"},
+                "imfs-pg-m1": {"state": "running", "health": "healthy"},
+                "imfs-pg-m2": {"state": "running", "health": "healthy"},
+                "imfs-pg-m3": {"state": "running", "health": "healthy"},
+                "imfs-pg-m4": {"state": "running", "health": "healthy"},
+            }},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshot_path = root / "latest.json"
+            proc_path = root / "proc"
+            proc_path.mkdir()
+            (proc_path / "meminfo").write_text("MemTotal: 1000 kB\n")
+            (proc_path / "uptime").write_text("10 0\n")
+            db_path = root / "metrics.db"
+            database = sqlite3.connect(db_path)
+            try:
+                database.execute("create table s (key text, ts integer, v real)")
+                database.commit()
+            finally:
+                database.close()
+
+            def build(containers):
+                payload = dict(base)
+                payload["docker"] = {"containers": {**base["docker"]["containers"], **containers}}
+                snapshot_path.write_text(json.dumps(payload))
+                with patch.object(publisher, "DB_PATH", db_path), patch.object(
+                    publisher, "ACTIVITY_SNAPSHOT", snapshot_path
+                ), patch.object(publisher, "PROC_ROOT", proc_path):
+                    return publisher.build_payload(publisher.read_json(snapshot_path))
+
+            running = build({"homelab-ollama": {"state": "running", "health": "none"}})
+            self.assertEqual(
+                next(item["status"] for item in running["services"]["items"] if item["name"] == "Ollama"),
+                "no_check",
+            )
+            stopped = build({"homelab-ollama": {"state": "exited", "health": "none"}})
+            self.assertEqual(
+                next(item["status"] for item in stopped["services"]["items"] if item["name"] == "Ollama"),
+                "stopped",
+            )
+            missing = build({})
+            self.assertEqual(
+                next(item["status"] for item in missing["services"]["items"] if item["name"] == "Ollama"),
+                "unknown",
+            )
 
     def test_publish_sends_only_status_record(self):
-        payload = {"node": {"observed_at": 1}, "resources": {}, "services": {"total": 5}}
+        payload = {"node": {"observed_at": 1}, "resources": {}, "services": {"total": 6}}
         with patch.dict(os.environ, {
             "SUPABASE_URL": "https://example.supabase.co",
             "SUPABASE_SERVICE_ROLE_KEY": "secret-for-test",
