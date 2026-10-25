@@ -2,7 +2,7 @@ const LIVE_AFTER_SECONDS = 90;
 const DISCONNECTED_AFTER_SECONDS = 180;
 // Hard cap against oversized/malicious payloads. Keep >= Dell services + Oracle backup.
 const MAX_SERVICE_ITEMS = 8;
-const BACKUP_SERVICE_NAME = "IMFS Integration Backup";
+const BACKUP_SERVICE_NAME = "IMFS Integration Backup (Oracle)";
 
 function classifyReceipt(receivedAt, now = Date.now()) {
   const timestamp = Date.parse(receivedAt || "");
@@ -37,7 +37,7 @@ function sanitizePayload(payload) {
   const items = Array.isArray(serviceData.items)
     ? serviceData.items.slice(0, MAX_SERVICE_ITEMS).map(item => {
         const entry = {
-          name: typeof item?.name === "string" ? item.name.slice(0, 32) : "Unknown",
+          name: typeof item?.name === "string" ? item.name.slice(0, 48) : "Unknown",
           status: serviceStatus(item?.status)
         };
         const role = serviceRole(item?.role) || (entry.name === BACKUP_SERVICE_NAME ? "backup" : null);

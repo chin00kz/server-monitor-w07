@@ -14,7 +14,7 @@ TABLE = os.environ.get("SUPABASE_STATUS_TABLE", "node_status")
 MAX_PAYLOAD_BYTES = 8 * 1024
 PROC_ROOT = Path(os.environ.get("HOST_PROC", "/proc"))
 CONTAINER_NAME = os.environ.get("ORACLE_PG_CONTAINER", "imfs-pg-integration")
-SERVICE_LABEL = "IMFS Integration Backup"
+SERVICE_LABEL = "IMFS Integration Backup (Oracle)"
 DOCKER_BIN = os.environ.get("DOCKER_BIN", "docker")
 
 

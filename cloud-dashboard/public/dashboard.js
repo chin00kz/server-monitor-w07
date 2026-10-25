@@ -1,5 +1,5 @@
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;if(root)root.DashboardPresentation=api})(typeof globalThis!=="undefined"?globalThis:this,function(){
-const SERVICE_NAMES=["IMFS Integration","IMFS M1","IMFS M2","IMFS M3","IMFS M4","Ollama","IMFS Integration Backup"],BACKUP_SERVICE_NAME="IMFS Integration Backup",ROUTES={starlink:"starlink-mini",dialog:"dialog-ethernet"};
+const SERVICE_NAMES=["IMFS Integration","IMFS M1","IMFS M2","IMFS M3","IMFS M4","Ollama","IMFS Integration Backup (Oracle)"],BACKUP_SERVICE_NAME="IMFS Integration Backup (Oracle)",ROUTES={starlink:"starlink-mini",dialog:"dialog-ethernet"};
 function networkState(value,isRoute,connection){if(connection!=="live")return{label:"Unknown",level:"neutral"};if(!["reachable","unreachable"].includes(value))return{label:"Unknown",level:"neutral"};if(value==="unreachable")return{label:"Unreachable",level:"bad"};return isRoute?{label:"Active",level:"good"}:{label:"Reachable",level:"neutral"}}
 function networkModel(network={},connection="disconnected"){const active=Object.values(ROUTES).includes(network.active_route)?network.active_route:"unknown",starlink=networkState(network.starlink,active===ROUTES.starlink,connection),dialog=networkState(network.dialog,active===ROUTES.dialog,connection);return{
 starlink,dialog,
@@ -63,7 +63,7 @@ function mountIcons(root=document){root.querySelectorAll("[data-icon]").forEach(
 function roleLabel(role){return({PRIMARY:"Primary link",STANDBY:"Backup link",OFFLINE:"Offline",UNKNOWN:"Unknown"})[role]||role}
 function serviceMeta(name){
   if(name==="Ollama")return{icon:"ai",kind:"AI runtime",role:null};
-  if(name==="IMFS Integration Backup")return{icon:"database",kind:"PostgreSQL",role:"Backup"};
+  if(name==="IMFS Integration Backup (Oracle)")return{icon:"database",kind:"PostgreSQL",role:"Backup"};
   return{icon:"database",kind:"PostgreSQL",role:null};
 }
 function setPanelBorder(id,level){const el=$("#"+id);if(!el)return;el.classList.add("status-border");for(const name of BORDER_LEVELS)el.classList.remove(`status-${name}`);el.classList.add(`status-${BORDER_LEVELS.includes(level)?level:"unknown"}`)}

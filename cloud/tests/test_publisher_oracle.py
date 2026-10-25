@@ -22,7 +22,7 @@ class OraclePublisherTests(unittest.TestCase):
         self.assertEqual(payload["node"]["id"], oracle.NODE_ID)
         self.assertEqual(payload["services"]["total"], 1)
         item = payload["services"]["items"][0]
-        self.assertEqual(item["name"], "IMFS Integration Backup")
+        self.assertEqual(item["name"], "IMFS Integration Backup (Oracle)")
         self.assertEqual(item["status"], "healthy")
         self.assertEqual(item["role"], "backup")
         oracle.validate_payload(payload)

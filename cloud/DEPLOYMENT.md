@@ -8,7 +8,7 @@ Production dashboard: https://server-monitor-cloud-dashboard.vercel.app
 
 1. The existing host collector keeps writing `data/activity/latest.json` and SQLite metrics as today.
 2. `cloud/publisher.py` (systemd timer on Dell) builds a **sanitized allowlisted** JSON snapshot: node id/uptime, Starlink/Dialog route reachability, battery percent + AC state, CPU/RAM/disk percents, and six service rows (five IMFS Postgres labels + Ollama from `homelab-ollama`).
-3. Optionally, `cloud/publisher_oracle.py` on `ubsever02` publishes a second row (`CLOUD_NODE_ID=ubsever02`) for the allowlisted `imfs-pg-integration` container as **IMFS Integration Backup**.
+3. Optionally, `cloud/publisher_oracle.py` on `ubsever02` publishes a second row (`CLOUD_NODE_ID=ubsever02`) for the allowlisted `imfs-pg-integration` container as **IMFS Integration Backup (Oracle)**.
 4. Publishers upsert into Supabase `node_status` with the **service-role** key. A DB trigger stamps `received_at`.
 5. RLS denies direct table reads. The Vercel app’s anon key may only execute `read_node_status`.
 6. After shared-password login, the cloud UI polls `/api/status` (Dell + optional backup node merge), which classifies receipt age:
@@ -107,7 +107,7 @@ sudo systemctl start server-monitor-oracle-cloud-publisher.service
 journalctl -u server-monitor-oracle-cloud-publisher.service -n 50 --no-pager
 ```
 
-The dashboard merges this row when Vercel has `CLOUD_BACKUP_NODE_ID=ubsever02`. The card label is **IMFS Integration Backup** (role chip **Backup**); it does not replace Dell’s primary **IMFS Integration** tile.
+The dashboard merges this row when Vercel has `CLOUD_BACKUP_NODE_ID=ubsever02`. The card label is **IMFS Integration Backup (Oracle)** (role chip **Backup**); it does not replace Dell’s primary **IMFS Integration** tile.
 
 ## Vercel dashboard
 
@@ -124,7 +124,7 @@ DASHBOARD_PASSWORD_HASH=scrypt$16384$8$1$replace-with-base64url-salt$replace-wit
 DASHBOARD_SESSION_SECRET=replace-with-at-least-32-random-bytes
 ```
 
-`CLOUD_BACKUP_NODE_ID` is optional. When set, `/api/status` also reads that node and appends the **IMFS Integration Backup** service tile.
+`CLOUD_BACKUP_NODE_ID` is optional. When set, `/api/status` also reads that node and appends the **IMFS Integration Backup (Oracle)** service tile.
 
 All variables are server-side only. The Supabase key is not a publisher credential and is restricted by database grants to the read-only status RPC. The dashboard verifies the shared password against its scrypt hash on the server, applies a small in-process login limiter, and issues signed one-hour cookies. Every status request verifies that cookie before accessing Supabase.
 
@@ -146,6 +146,6 @@ Keep this hybrid unless deliberately redesigning:
 
 - Simple top bar (node + LIVE badge + uptime/updated + Sign out).
 - Three status panels: Connectivity, Host power, Utilization (with icons).
-- Workloads as a **service card grid** (DB icon for Postgres services, AI icon for Ollama; seventh tile **IMFS Integration Backup** with a restrained Backup chip when Oracle publisher is configured).
+- Workloads as a **service card grid** (DB icon for Postgres services, AI icon for Ollama; seventh tile **IMFS Integration Backup (Oracle)** with a restrained Backup chip when Oracle publisher is configured).
 
 No Ubuntu port, reverse proxy, Tailscale route, Docker socket, or local dashboard change is required for Vercel access.

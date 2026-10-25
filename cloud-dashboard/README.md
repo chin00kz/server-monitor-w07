@@ -48,7 +48,7 @@ Services shown:
 | IMFS Integration | Dell `imfs-pg-integration` |
 | IMFS M1–M4 | Dell `imfs-pg-m1` … `imfs-pg-m4` |
 | Ollama | Dell `homelab-ollama` — `no_check` displays as **Running** and counts toward healthy |
-| IMFS Integration Backup | Oracle `ubsever02` `imfs-pg-integration` via `publisher_oracle.py` (merged when `CLOUD_BACKUP_NODE_ID` is set) |
+| IMFS Integration Backup (Oracle) | Oracle `ubsever02` `imfs-pg-integration` via `publisher_oracle.py` (merged when `CLOUD_BACKUP_NODE_ID` is set) |
 
 ## Project layout
 
