@@ -20,3 +20,9 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# Cloud / Vercel — never commit local secrets or CLI link state
+.env.*
+!.env.example
+cloud-dashboard/.env.local
+cloud-dashboard/.vercel/

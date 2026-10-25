@@ -8,14 +8,22 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
+from activity_snapshot import load_activity_snapshot
+from backup_status import load_backup_status
+from docker_uptime import calculate_uptime_seconds
+from network_health import ALL_INTERFACES, network_status_ok
+from service_expectations import container_roles
+from snapshot_sanitize import sanitize_postgres_database
 import store
 from host import PROC, SYS, Collector
 
@@ -24,6 +32,7 @@ WEB = Path(__file__).parent / "web"
 SESSION_TTL, MAX_FAILS, FAIL_WINDOW = 7 * 86400, 5, 900
 SAMPLE_SECONDS = int(os.environ.get("SAMPLE_SECONDS", "15"))
 KEY_RE = re.compile(r"^[a-z0-9_.]{1,64}$")
+ACTIVITY_SNAPSHOT = Path("/data/activity/latest.json")
 
 latest = {"ts": None, "m": {}, "info": {}}
 ph = PasswordHasher()
@@ -104,6 +113,14 @@ def require_login(request: Request):
         raise HTTPException(401, "login required")
 
 
+def require_management(request: Request):
+    require_login(request)
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    host = request.headers.get("host")
+    if not origin or not host or urlsplit(origin).netloc != host:
+        raise HTTPException(403, "same-origin request required")
+
+
 class Login(BaseModel):
     password: str
 
@@ -141,6 +158,13 @@ def logout(request: Request, response: Response):
 
 
 # ---------- pages ----------
+@app.get("/favicon.svg")
+@app.get("/favicon.ico")
+def favicon():
+    """Browser tab icon; .ico alias serves the same SVG for older agents."""
+    return FileResponse(WEB / "favicon.svg", media_type="image/svg+xml")
+
+
 @app.get("/login")
 def login_page():
     return FileResponse(WEB / "login.html")
@@ -177,6 +201,231 @@ HOST_TRIGGER_FILE = Path("/data/activity/refresh.request")
 HOST_STATUS_FILE = Path("/data/activity/refresh.status")
 last_host_request_time = 0.0
 host_request_lock = threading.Lock()
+DOCKER_CONTROL_ROOT = Path("/data/docker-control")
+DOCKER_CONTROL_REQUEST = DOCKER_CONTROL_ROOT / "request.json"
+DOCKER_CONTROL_STATUS = DOCKER_CONTROL_ROOT / "status.json"
+DOCKER_CONTROL_ACTIONS = {"start", "stop", "restart", "logs"}
+DOCKER_CONTROL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+DOCKER_CONTROL_EXCLUDED = {"server-monitor"}
+DOCKER_CONTROL_LOG_ONLY = {"server-monitor"}
+# Host path unit should consume request.json quickly; abandon abandoned files.
+DOCKER_CONTROL_STALE_SECONDS = 90
+last_docker_action_time: dict[str, float] = {}
+docker_control_lock = threading.Lock()
+BACKUP_CONTROL_ROOT = Path("/data/backup-control")
+BACKUP_CONTROL_REQUEST = BACKUP_CONTROL_ROOT / "request.json"
+BACKUP_CONTROL_STATUS = BACKUP_CONTROL_ROOT / "status.json"
+BACKUP_ARCHIVE_ROOT = BACKUP_CONTROL_ROOT / "archives"
+BACKUP_ARCHIVE_STATUS_ROOT = BACKUP_CONTROL_ROOT / "archive-status"
+BACKUP_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
+BACKUP_REQUEST_RE = re.compile(r"^[a-f0-9]{32}$")
+backup_control_lock = threading.Lock()
+
+
+class DockerControlRequest(BaseModel):
+    container: str
+    action: str
+
+
+def configured_docker_containers():
+    raw = os.environ.get(
+        "DOCKER_CONTROL_CONTAINERS",
+        "imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,"
+        "homelab-test,homelab-ollama",
+    )
+    return {
+        name.strip()
+        for name in raw.split(",")
+        if DOCKER_CONTROL_NAME_RE.fullmatch(name.strip())
+        and name.strip() not in DOCKER_CONTROL_EXCLUDED
+    }
+
+
+def write_control_json(path: Path, payload: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n")
+    try:
+        os.chmod(temporary, 0o660)
+    except OSError:
+        pass
+    os.replace(temporary, path)
+
+
+def read_control_status():
+    try:
+        value = json.loads(DOCKER_CONTROL_STATUS.read_text())
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _docker_request_age_seconds(now: float) -> float | None:
+    """Age of the pending request.json, or None if it is missing."""
+    if not DOCKER_CONTROL_REQUEST.exists():
+        return None
+    try:
+        payload = json.loads(DOCKER_CONTROL_REQUEST.read_text())
+        created = payload.get("created_at") if isinstance(payload, dict) else None
+        if isinstance(created, (int, float)):
+            return max(0.0, now - float(created))
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        return max(0.0, now - DOCKER_CONTROL_REQUEST.stat().st_mtime)
+    except OSError:
+        return DOCKER_CONTROL_STALE_SECONDS + 1.0
+
+
+def clear_stale_docker_request(now: float) -> bool:
+    """Drop abandoned request.json so a dead host controller cannot brick controls."""
+    age = _docker_request_age_seconds(now)
+    if age is None or age < DOCKER_CONTROL_STALE_SECONDS:
+        return False
+    payload = None
+    try:
+        value = json.loads(DOCKER_CONTROL_REQUEST.read_text())
+        if isinstance(value, dict):
+            payload = value
+    except (OSError, ValueError, TypeError):
+        payload = None
+    try:
+        DOCKER_CONTROL_REQUEST.unlink(missing_ok=True)
+    except OSError:
+        return False
+    write_control_json(DOCKER_CONTROL_STATUS, {
+        "request_id": (payload or {}).get("request_id"),
+        "container": (payload or {}).get("container"),
+        "action": (payload or {}).get("action"),
+        "status": "failed",
+        "message": "Previous Docker request was abandoned (host controller did not consume it)",
+        "finished_at": int(now),
+        "timestamp": int(now),
+    })
+    return True
+
+
+@app.get("/api/backups", dependencies=[Depends(require_login)])
+def backup_status():
+    """Return validated status produced by the restricted host controller."""
+    return load_backup_status(BACKUP_CONTROL_STATUS, int(time.time()))
+
+
+@app.post("/api/backups/run", dependencies=[Depends(require_management)])
+def run_backup():
+    """Queue the fixed host backup script; no browser-supplied command is accepted."""
+    now = int(time.time())
+    with backup_control_lock:
+        if BACKUP_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a backup is already queued")
+        current = load_backup_status(BACKUP_CONTROL_STATUS, now)
+        if current["status"] == "running":
+            raise HTTPException(409, "a backup is already running")
+
+        request = {
+            "request_id": secrets.token_hex(16),
+            "action": "backup",
+            "created_at": now,
+        }
+        running = {
+            "status": "running",
+            "timestamp": now,
+            "message": "Backup request queued",
+            "request_id": request["request_id"],
+            "last_local": current["last_local"],
+            "last_cloud": current["last_cloud"],
+            "storage": current["storage"],
+        }
+        write_control_json(BACKUP_CONTROL_STATUS, running)
+        write_control_json(BACKUP_CONTROL_REQUEST, request)
+    return running
+
+
+@app.post(
+    "/api/backups/{backup_name}/archive",
+    dependencies=[Depends(require_management)],
+)
+def request_backup_archive(backup_name: str):
+    """Queue creation of one validated backup ZIP on the host."""
+    if not BACKUP_NAME_RE.fullmatch(backup_name):
+        raise HTTPException(400, "invalid backup name")
+
+    now = int(time.time())
+    with backup_control_lock:
+        if BACKUP_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a backup operation is already queued")
+        current = load_backup_status(BACKUP_CONTROL_STATUS, now)
+        available = {item["name"] for item in current.get("backups", [])}
+        if backup_name not in available:
+            raise HTTPException(404, "backup folder is unavailable")
+
+        request_id = secrets.token_hex(16)
+        request = {
+            "request_id": request_id,
+            "action": "archive",
+            "backup_name": backup_name,
+            "created_at": now,
+        }
+        write_control_json(BACKUP_ARCHIVE_STATUS_ROOT / f"{request_id}.json", {
+            "request_id": request_id,
+            "status": "queued",
+            "message": "ZIP archive queued",
+            "backup_name": backup_name,
+            "timestamp": now,
+        })
+        write_control_json(BACKUP_CONTROL_REQUEST, request)
+    return {"request_id": request_id, "status": "queued"}
+
+
+def remove_download(path: Path, status_path: Path):
+    for target in (path, status_path):
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+
+@app.get(
+    "/api/backups/archive/{request_id}",
+    dependencies=[Depends(require_login)],
+)
+def download_backup_archive(request_id: str):
+    """Return a completed temporary archive and remove it after transfer."""
+    if not BACKUP_REQUEST_RE.fullmatch(request_id):
+        raise HTTPException(400, "invalid archive request")
+    status_path = BACKUP_ARCHIVE_STATUS_ROOT / f"{request_id}.json"
+    try:
+        status = json.loads(status_path.read_text())
+        if not isinstance(status, dict) or status.get("request_id") != request_id:
+            raise ValueError("invalid archive status")
+        state = status.get("status")
+        backup_name = status.get("backup_name")
+        timestamp = status.get("timestamp")
+        if (
+            state not in {"queued", "running", "completed", "failed"}
+            or not isinstance(backup_name, str)
+            or not BACKUP_NAME_RE.fullmatch(backup_name)
+            or type(timestamp) is not int
+            or int(time.time()) - timestamp > 3600
+        ):
+            raise ValueError("invalid archive status")
+    except (OSError, ValueError, TypeError, KeyError):
+        raise HTTPException(404, "archive request is unavailable")
+
+    if state in {"queued", "running"}:
+        return JSONResponse(status_code=202, content={"status": state})
+    if state == "failed":
+        raise HTTPException(500, "backup archive could not be created")
+
+    archive = BACKUP_ARCHIVE_ROOT / f"{request_id}.zip"
+    if archive.is_symlink() or not archive.is_file():
+        raise HTTPException(404, "backup archive is unavailable")
+    return FileResponse(
+        archive,
+        media_type="application/zip",
+        filename=f"{backup_name}.zip",
+        background=BackgroundTask(remove_download, archive, status_path),
+    )
 
 
 @app.post("/api/refresh", dependencies=[Depends(require_login)])
@@ -242,41 +491,83 @@ def refresh_host(timeout: float = 8.0):
     }
 
 
+@app.post("/api/docker/control", dependencies=[Depends(require_management)])
+def docker_control(body: DockerControlRequest):
+    """Submit one allowlisted Docker action to the host-side controller."""
+    container = body.container.strip()
+    action = body.action.strip().lower()
+    if not DOCKER_CONTROL_NAME_RE.fullmatch(container):
+        raise HTTPException(400, "invalid container name")
+    if action not in DOCKER_CONTROL_ACTIONS:
+        raise HTTPException(400, "unsupported Docker action")
+    if container in DOCKER_CONTROL_LOG_ONLY and action != "logs":
+        raise HTTPException(403, "container is authorized for logs only")
+    if (container not in configured_docker_containers()
+            and container not in DOCKER_CONTROL_LOG_ONLY):
+        raise HTTPException(403, "container is not authorized")
+
+    now = time.time()
+    with docker_control_lock:
+        clear_stale_docker_request(now)
+        if DOCKER_CONTROL_REQUEST.exists():
+            raise HTTPException(
+                409,
+                "a Docker action is already queued — wait ~90s or check host docker-control.service",
+            )
+        status = read_control_status()
+        if status and status.get("status") in {"queued", "running"}:
+            status_time = status.get("timestamp", 0)
+            if isinstance(status_time, (int, float)) and now - status_time < 120:
+                raise HTTPException(409, "a Docker action is already running")
+        if now - last_docker_action_time.get(container, 0) < 5:
+            raise HTTPException(429, "Docker action requested recently")
+
+        request_id = secrets.token_hex(16)
+        request = {
+            "request_id": request_id,
+            "container": container,
+            "action": action,
+            "created_at": int(now),
+        }
+        last_docker_action_time[container] = now
+        write_control_json(DOCKER_CONTROL_STATUS, {
+            **request,
+            "status": "queued",
+            "timestamp": int(now),
+            "message": "Docker action queued",
+        })
+        write_control_json(DOCKER_CONTROL_REQUEST, request)
+
+    deadline = time.monotonic() + 35
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        status = read_control_status()
+        if not status or status.get("request_id") != request_id:
+            continue
+        if status.get("status") in {"completed", "failed"}:
+            return status
+
+    # Leave request.json for a late host controller, but mark status so the UI
+    # is clear that nothing acknowledged yet. Stale cleanup unbricks retries.
+    return {
+        "request_id": request_id,
+        "container": container,
+        "action": action,
+        "status": "pending",
+        "message": "Docker controller did not acknowledge within the timeout — is server-docker-control.path active?",
+    }
+
+
 
 @app.get("/api/activity", dependencies=[Depends(require_login)])
 def activity():
-    """Return sanitized PostgreSQL activity, rejecting stale snapshots."""
-    path = Path("/data/activity/latest.json")
+    """Return sanitized activity, rejecting stale or malformed snapshots."""
     now_ts = int(time.time())
 
     try:
-        snapshot = json.loads(path.read_text())
-        timestamp = int(snapshot["timestamp"])
-        databases = snapshot["databases"]
-
-        age = now_ts - timestamp
-        expected = {
-            "imfs-pg-m1", "imfs-pg-m2", "imfs-pg-m3",
-            "imfs-pg-m4", "imfs-pg-integration",
-        }
-
-        if age < 0 or age > 90 or set(databases) != expected:
-            raise ValueError("stale or incomplete snapshot")
-
-        safe_databases = {}
-        for name in sorted(expected):
-            item = databases[name]
-            if item.get("status") != "ok":
-                raise ValueError("database check unavailable")
-
-            counts = {}
-            for key in ("active", "idle", "idle_in_transaction", "other", "total"):
-                value = item.get(key)
-                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                    raise ValueError("invalid activity count")
-                counts[key] = value
-
-            safe_databases[name] = counts
+        snapshot, timestamp, age, safe_databases = load_activity_snapshot(
+            ACTIVITY_SNAPSHOT, now_ts
+        )
 
         sessions = snapshot.get("sessions")
         if not isinstance(sessions, dict):
@@ -303,11 +594,10 @@ def activity():
             "interfaces": {},
         }
 
-        names = ("wlp2s0", "enp1s0", "tailscale0")
         if isinstance(raw_network, dict):
             raw_interfaces = raw_network.get("interfaces")
             if isinstance(raw_interfaces, dict):
-                for name in names:
+                for name in ALL_INTERFACES:
                     item = raw_interfaces.get(name)
                     if not isinstance(item, dict):
                         continue
@@ -329,15 +619,24 @@ def activity():
                             "operstate": state,
                             "ipv4": ip,
                         }
+                    elif isinstance(item.get("status"), str):
+                        # Preserve degraded interface rows when inventory is incomplete.
+                        safe_network["interfaces"][name] = {
+                            "status": "unknown",
+                            "operstate": state if isinstance(state, str) else None,
+                            "ipv4": None,
+                        }
 
             preferred = raw_network.get("preferred_interface")
-            if preferred in names:
+            if preferred in ALL_INTERFACES:
                 safe_network["preferred_interface"] = preferred
 
-            if (
-                raw_network.get("status") == "ok"
-                and len(safe_network["interfaces"]) == len(names)
-                and safe_network["preferred_interface"] is not None
+            # Overall ok follows preferred WAN inventory only (not Tailscale).
+            # Prefer collector status when present, but recompute so API and
+            # collector stay consistent even with older snapshots.
+            if network_status_ok(
+                safe_network["preferred_interface"],
+                safe_network["interfaces"],
             ):
                 safe_network["status"] = "ok"
 
@@ -532,7 +831,9 @@ def reliability():
     expected = (
         "server-monitor", "imfs-pg-m1", "imfs-pg-m2",
         "imfs-pg-m3", "imfs-pg-m4", "imfs-pg-integration",
+        "homelab-test", "homelab-ollama",
     )
+    roles = container_roles(expected)
     try:
         snapshot = json.loads(Path("/data/activity/latest.json").read_text())
         timestamp = int(snapshot["timestamp"])
@@ -547,17 +848,23 @@ def reliability():
             state = item.get("state")
             health = item.get("health")
             restarts = item.get("restarts")
+            started_at = item.get("started_at")
+            safe_state = state if state in (
+                "running", "exited", "restarting", "paused",
+                "created", "dead", "removing"
+            ) else "unknown"
             containers[name] = {
-                "state": state if state in (
-                    "running", "exited", "restarting", "paused",
-                    "created", "dead", "removing"
-                ) else "unknown",
+                "state": safe_state,
                 "health": health if health in (
                     "healthy", "unhealthy", "starting", "none"
                 ) else "unknown",
                 "restarts": restarts if (
                     type(restarts) is int and 0 <= restarts <= 1000000
                 ) else None,
+                "uptime_seconds": calculate_uptime_seconds(
+                    safe_state, started_at, time.time()
+                ),
+                **roles[name],
             }
 
         raw_storage = snapshot.get("storage") or {}
@@ -623,8 +930,10 @@ def reliability():
             "timestamp": timestamp,
             "age_seconds": age,
             "docker": {
+                # Preserve collector completeness: ok | partial | unknown.
                 "status": (
-                    "ok" if raw_docker.get("status") == "ok"
+                    raw_docker.get("status")
+                    if raw_docker.get("status") in ("ok", "partial")
                     else "unknown"
                 ),
                 "containers": containers,
@@ -722,6 +1031,7 @@ def postgres_health():
         "imfs-pg-m4",
         "imfs-pg-integration",
     )
+    roles = container_roles(expected)
 
     try:
         snapshot = json.loads(
@@ -737,43 +1047,10 @@ def postgres_health():
             raise ValueError("invalid database snapshot")
 
         databases = {}
-
-        fields = (
-            "active",
-            "idle",
-            "idle_in_transaction",
-            "other",
-            "total",
-            "long_running",
-            "max_connections",
-            "database_size_bytes",
-            "response_ms",
-        )
-
         for name in expected:
-            item = source[name]
-
-            if not isinstance(item, dict) or item.get("status") != "ok":
-                databases[name] = {"status": "unknown"}
-                continue
-
-            safe = {}
-            for field in fields:
-                value = item.get(field)
-
-                if (
-                    not isinstance(value, int)
-                    or isinstance(value, bool)
-                    or value < 0
-                ):
-                    raise ValueError("invalid PostgreSQL metric")
-
-                safe[field] = value
-
-            if safe["max_connections"] == 0:
-                raise ValueError("invalid connection capacity")
-
-            databases[name] = {"status": "ok", **safe}
+            databases[name] = sanitize_postgres_database(
+                source[name], roles[name]
+            )
 
         return {
             "status": "ok",

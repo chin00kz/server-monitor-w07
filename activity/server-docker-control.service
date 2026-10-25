@@ -1,0 +1,21 @@
+[Unit]
+Description=Restricted Server Monitor Docker controller
+Documentation=https://github.com/chin00kz/server-monitor-w07
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=chinookz
+SupplementaryGroups=docker
+WorkingDirectory=/home/chinookz/homelab/docker/server-monitor
+Environment=SERVER_MONITOR_DATA=/home/chinookz/homelab/docker/server-monitor/data
+Environment=DOCKER_CONTROL_CONTAINERS=imfs-pg-m1,imfs-pg-m2,imfs-pg-m3,imfs-pg-m4,imfs-pg-integration,homelab-test,homelab-ollama
+ExecStart=/usr/bin/python3 /home/chinookz/homelab/docker/server-monitor/activity/docker_control.py
+TimeoutStartSec=50
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true

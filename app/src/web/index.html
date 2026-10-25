@@ -4,17 +4,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>server-monitor</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 
 :root {
   color-scheme: dark;
-  --bg: #0b1018;
-  --card: #141c27;
-  --line: #263244;
-  --text: #edf3fa;
-  --mute: #91a0b3;
-  --acc: #64b5f6;
-  --green: #55d6a0;
+  /* Industrial console tokens (single source; later blocks refine components) */
+  --bg: #080b10;
+  --card: #10161e;
+  --panel: #10161e;
+  --panel-raised: #151d27;
+  --panel-deep: #0c1118;
+  --line: #273544;
+  --line-bright: #3a4b5d;
+  --text: #e8edf2;
+  --mute: #8292a3;
+  --soft: #aebbc7;
+  --acc: #f28c28;
+  --acc-soft: #ffb45e;
+  --green: #5cc98a;
+  --amber: #e5ac52;
+  --red: #e16b67;
+  --blue: #79a9c8;
+  --status-healthy: #2f735b;
+  --status-warning: #8b641d;
+  --status-critical: #8a3c3c;
+  --status-info: #375d75;
+  --status-unknown: #3b4b59;
+  --radius: 3px;
+  --font: "Segoe UI", Ubuntu, system-ui, sans-serif;
+  --mono: Consolas, "Ubuntu Mono", ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -23,8 +42,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
+  font: 14px/1.5 var(--font);
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
            env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
@@ -676,33 +694,120 @@ button:hover { border-color: var(--acc); }
 }
 .network-status-grid span:last-child { overflow-wrap: anywhere; }
 
+.docker-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.docker-health-badge::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+.docker-health-healthy { color: var(--green); background: rgba(92, 201, 138, .08); }
+.docker-health-neutral,
+.docker-health-info,
+.docker-health-unknown { color: #9aa7b3; background: rgba(154, 167, 179, .08); }
+.docker-health-warning { color: var(--amber); background: rgba(229, 172, 82, .09); }
+.docker-health-danger,
+.docker-health-critical { color: var(--red); background: rgba(225, 107, 103, .09); }
+
 #reliability-section #rel-container-list {
   margin-top: 12px;
 }
 #rel-container-list > div {
   padding: 14px;
-  background: #101519;
+  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 3px;
+}
+#rel-container-list > div.status-healthy {
+  border-color: #3d9b74 !important;
+  box-shadow: inset 0 0 0 1px rgba(92, 201, 138, .18);
+}
+#rel-container-list > div.status-warning {
+  border-color: var(--status-warning) !important;
+  box-shadow: inset 0 0 0 1px rgba(229, 172, 82, .14);
+}
+#rel-container-list > div.status-critical,
+#rel-container-list > div.status-danger {
+  border-color: #c45a56 !important;
+  box-shadow: inset 0 0 0 1px rgba(225, 107, 103, .22);
 }
 #rel-container-list > div > span,
 #rel-container-list > div > strong {
   overflow-wrap: anywhere;
 }
-
-#alert-history-section > div:nth-child(2),
-#postgres-health-section > div:nth-child(2) {
-  padding: 16px clamp(16px, 3vw, 38px) 30px !important;
+.docker-card-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
 }
-#alert-history-list > div {
-  background: var(--card);
-  border-color: var(--line) !important;
-  border-radius: 5px !important;
+.docker-card-controls button {
+  min-width: 58px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-bright);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.docker-card-controls button:hover:not(:disabled) {
+  border-color: var(--acc);
+  color: var(--acc-soft);
+}
+.docker-card-controls button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+.docker-control-status {
+  display: block;
+  flex-basis: 100%;
+  min-height: 16px;
+  color: var(--mute);
+  font-size: 11px;
+}
+.docker-control-status.ok { color: var(--green); }
+.docker-control-status.error { color: var(--red); }
+.docker-log-panel {
+  display: none;
+  flex-basis: 100%;
+  max-height: 260px;
+  margin-top: 5px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: #080b10;
+}
+.docker-log-panel pre {
+  margin: 0;
+  padding: 10px;
+  color: var(--soft);
+  font: 11px/1.55 Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#postgres-health-section > div:nth-child(2) {
+  padding: 16px 0 30px !important;
 }
 #postgres-health-list > div {
-  background: var(--card);
-  border-color: var(--line) !important;
-  border-radius: 5px !important;
+  background: var(--panel);
+  border-color: var(--line);
+  border-radius: 3px;
 }
 
 #charts-section .grid {
@@ -727,12 +832,6 @@ canvas { max-width: 100%; }
   margin: 18px clamp(16px, 3vw, 38px) 30px;
 }
 
-@media (min-width: 1100px) {
-  #overview-section .stats .card:first-child,
-  #overview-section .stats .card:nth-child(2) {
-    border-top: 2px solid var(--acc);
-  }
-}
 @media (max-width: 900px) {
   header { gap: 12px; flex-wrap: wrap; padding-top: 12px; }
   h1 { flex: 1; }
@@ -779,6 +878,11 @@ canvas { max-width: 100%; }
   --amber: #e5ac52;
   --red: #e16b67;
   --blue: #79a9c8;
+  --status-healthy: #2f735b;
+  --status-warning: #8b641d;
+  --status-critical: #8a3c3c;
+  --status-info: #375d75;
+  --status-unknown: #3b4b59;
 }
 
 html { background: var(--bg); }
@@ -864,7 +968,31 @@ header.topbar #range:focus, header.topbar #out:focus, .refresh-btn:focus { outli
 }
 .card { padding: 17px; }
 .stats .card { min-height: 124px; position: relative; overflow: hidden; }
-.stats .card::after { position: absolute; right: 12px; bottom: 10px; width: 25px; height: 2px; background: var(--acc); opacity: .55; content: ""; }
+.stats .card::after { display: none; }
+.status-border {
+  border-width: 1px;
+  border-style: solid;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.status-border.status-healthy {
+  border-color: #3d9b74 !important;
+  box-shadow: inset 0 0 0 1px rgba(92, 201, 138, .18);
+}
+.status-border.status-warning {
+  border-color: var(--status-warning) !important;
+  box-shadow: inset 0 0 0 1px rgba(229, 172, 82, .14);
+}
+.status-border.status-critical,
+.status-border.status-danger {
+  border-color: #c45a56 !important;
+  box-shadow: inset 0 0 0 1px rgba(225, 107, 103, .22);
+}
+.status-border.status-info {
+  border-color: var(--status-info) !important;
+}
+.status-border.status-unknown {
+  border-color: var(--status-unknown) !important;
+}
 .card h2 { color: var(--mute); font-size: .67rem; letter-spacing: .13em; }
 .big { color: var(--text); font-family: Consolas, monospace; font-size: 1.72rem; letter-spacing: -.04em; }
 .sub { margin-top: 8px; color: var(--mute); font-size: .72rem; }
@@ -892,9 +1020,9 @@ header.topbar #range:focus, header.topbar #out:focus, .refresh-btn:focus { outli
 .legend { font-family: Consolas, monospace; font-size: .69rem; }
 canvas { opacity: .92; }
 .tip { border-radius: 2px; background: #0b1017; font-family: Consolas, monospace; }
-#alert-history-section > div:not(.section-heading), #postgres-health-section > div:not(.section-heading) { padding: 18px 0 0 !important; }
-#alert-history-list > div, #postgres-health-list > div { background: var(--panel); border-color: var(--line) !important; border-radius: 3px !important; }
-#alert-history-status, #postgres-health-status { color: var(--mute); font-size: .78rem; }
+#postgres-health-section > div:not(.section-heading) { padding: 18px 0 0 !important; }
+#postgres-health-list > div { background: var(--panel); border-radius: 3px; }
+#alert-history-status, #postgres-health-status { color: var(--mute); font-size: .78rem; margin: 0 0 12px; }
 .refresh-spinner { display: block; width: 13px; height: 13px; border: 2px solid rgba(34, 21, 9, .3); border-top-color: #221509; border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1050px) {
@@ -929,6 +1057,248 @@ canvas { opacity: .92; }
   .topbar-actions .refresh-btn { justify-content: center; }
 }
 
+.backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.backup-storage { margin-top: 14px; }
+.backup-progress { height: 8px; margin-top: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--panel-deep); }
+.backup-progress > span { display: block; width: 0; height: 100%; background: var(--green); transition: width .2s ease; }
+.backup-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.backup-state-successful { color: var(--green) !important; }
+.backup-state-failed { color: var(--red) !important; }
+.backup-state-running { color: var(--amber) !important; }
+.backup-state-unavailable { color: var(--mute) !important; }
+.backup-files-card { margin-top: 18px; overflow: hidden; }
+.backup-files-heading { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.backup-files-heading h3 { margin: 0; font-size: 1rem; font-weight: 650; }
+.backup-files-heading p { margin: 5px 0 0; color: var(--mute); font-size: .74rem; }
+.backup-files-table { width: 100%; border-collapse: collapse; }
+.backup-files-table th, .backup-files-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+.backup-files-table th { color: var(--mute); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase; }
+.backup-files-table td { color: var(--soft); font-family: Consolas, monospace; font-size: .79rem; }
+.backup-files-table th:last-child, .backup-files-table td:last-child { width: 84px; text-align: center; }
+.backup-download { min-width: 34px; min-height: 30px; border: 1px solid var(--line); color: var(--acc-soft); font-size: 1rem; }
+.backup-download:hover:not(:disabled) { border-color: var(--acc); background: rgba(242, 140, 40, .1); }
+.backup-download:disabled { cursor: wait; opacity: .55; }
+.backup-files-empty { padding: 18px 10px; color: var(--mute); font-size: .78rem; }
+@media (max-width: 600px) {
+  .backup-grid { grid-template-columns: minmax(0, 1fr); }
+  .backup-actions { align-items: stretch; flex-direction: column; }
+}
+
+/* ——— Polish layer (industrial console) ——— */
+header.topbar {
+  flex-wrap: wrap;
+  row-gap: 10px;
+  align-items: center;
+}
+.topbar-actions { margin-left: auto; }
+#refresh-status,
+.refresh-status {
+  position: static;
+  order: 5;
+  flex: 1 1 100%;
+  max-width: none;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-deep);
+  color: var(--mute);
+  font-family: var(--mono);
+  font-size: .72rem;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.refresh-status.err {
+  color: var(--red);
+  border-color: rgba(225, 107, 103, .35);
+  background: rgba(225, 107, 103, .06);
+}
+.health-state {
+  white-space: normal;
+  max-width: 220px;
+  line-height: 1.25;
+}
+.health-state[data-metrics="live"] { color: var(--green); }
+.health-state[data-metrics="live"]::before {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(92, 201, 138, .12);
+}
+.health-state[data-metrics="stale"] { color: var(--amber); }
+.health-state[data-metrics="stale"]::before {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(229, 172, 82, .14);
+}
+.health-state[data-metrics="unavailable"] { color: var(--mute); }
+.health-state[data-metrics="unavailable"]::before {
+  background: var(--mute);
+  box-shadow: 0 0 0 3px rgba(130, 146, 163, .12);
+}
+.side-status-row strong[data-metrics="live"] { color: var(--green); }
+.side-status-row strong[data-metrics="stale"] { color: var(--amber); }
+.side-status-row strong[data-metrics="unavailable"] { color: var(--mute); }
+.side-status-row strong { font-family: var(--mono); font-size: .72rem; }
+.content { padding-top: 22px; }
+.section-heading {
+  gap: 12px;
+  margin-bottom: 4px;
+  padding-bottom: 14px;
+}
+.docker-card-controls {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.docker-log-panel {
+  max-width: 100%;
+  overflow: auto;
+}
+.docker-log-panel pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.network-status-grid > div,
+.summary-card,
+.card {
+  min-width: 0;
+}
+.big, .summary-value, .telemetry-value, .maintenance-metrics strong {
+  font-family: var(--mono);
+}
+@media (max-width: 780px) {
+  .topbar-actions { margin-left: 0; }
+  .health-state { max-width: none; }
+}
+
+#charts-section .grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px 0 0;
+  align-items: stretch;
+}
+#charts-section .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 310px;
+  padding: 16px 16px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: none;
+}
+#charts-section .card h2 {
+  margin: 0 0 8px;
+  color: var(--mute);
+  font-size: .68rem;
+  letter-spacing: .14em;
+}
+#charts-section .legend {
+  min-height: 1.4em;
+  margin-bottom: 10px;
+  color: var(--soft);
+  font-family: var(--mono);
+  font-size: .78rem;
+}
+#charts-section .legend .dot {
+  width: 9px;
+  height: 9px;
+  vertical-align: -1px;
+}
+#charts-section .cv { flex: 1; min-height: 220px; }
+#charts-section canvas { opacity: 1; }
+#charts-section .tip {
+  border: 1px solid var(--line-bright);
+  border-radius: 3px;
+  background: rgba(8, 11, 16, .97);
+  font-family: var(--mono);
+  font-size: .72rem;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .4);
+}
+
+#rel-network-panel,
+#rel-storage-panel,
+#rel-docker-panel > .network-status-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+#rel-container-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+}
+
+.events-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 4px 0 14px;
+}
+.events-toolbar input,
+.events-toolbar select {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: .82rem;
+}
+.events-toolbar input { flex: 1 1 240px; min-width: 180px; }
+.events-toolbar select { flex: 0 0 auto; }
+.events-toolbar input:focus,
+.events-toolbar select:focus {
+  outline: 2px solid rgba(242, 140, 40, .5);
+  outline-offset: 1px;
+}
+.events-list { display: grid; gap: 10px; }
+.event-card {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.event-card.status-critical {
+  border-color: #c45a56;
+  box-shadow: inset 0 0 0 1px rgba(225, 107, 103, .18);
+}
+.event-card.status-warning { border-color: var(--status-warning); }
+.event-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.event-severity {
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+.event-severity.critical { color: var(--red); }
+.event-severity.warning { color: var(--amber); }
+.event-severity.info { color: var(--soft); }
+.event-delivery { color: var(--mute); font-size: .72rem; }
+.event-message {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: .9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.event-time {
+  margin-top: 8px;
+  color: var(--mute);
+  font-family: var(--mono);
+  font-size: .72rem;
+}
+
+@media (max-width: 900px) {
+  #charts-section .grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 </style></head>
 <body>
 <div class="app-shell">
@@ -943,7 +1313,7 @@ canvas { opacity: .92; }
     <div class="side-status-title">Node status</div>
     <div class="side-status-row"><span>Host</span><strong>ONLINE</strong></div>
     <div class="side-status-row"><span>Uptime</span><strong id="side-uptime">Loading</strong></div>
-    <div class="side-status-row"><span>Telemetry</span><strong id="side-health">LIVE</strong></div>
+    <div class="side-status-row"><span>Container metrics</span><strong id="side-health" data-metrics="unavailable">Unavailable</strong></div>
   </div>
   <div class="sidebar-footer"><small>server-monitor / w07</small><button id="out">Log out</button></div>
 </aside>
@@ -954,7 +1324,7 @@ canvas { opacity: .92; }
     <div class="telemetry"><span class="telemetry-label">Platform</span><span class="telemetry-value">Ubuntu host</span></div>
     <div class="telemetry"><span class="telemetry-label">Uptime</span><span class="telemetry-value" id="header-uptime">Loading</span></div>
     <div class="telemetry"><span class="telemetry-label">CPU / RAM</span><span class="telemetry-value" id="header-load">Loading</span></div>
-    <div class="health-state" id="header-health">Telemetry live</div>
+    <div class="health-state" id="header-health" data-metrics="unavailable">Container metrics unavailable</div>
   </div>
   <div class="topbar-actions">
     <select id="range" aria-label="Chart time range">
@@ -1141,14 +1511,72 @@ canvas { opacity: .92; }
 
 <section id="alert-history-section">
   <div class="section-heading">
-    <h2>Alert History</h2>
+    <div>
+      <div class="eyebrow">OPERATIONS LOG</div>
+      <h2>Alert History</h2>
+      <p>Recent Telegram alert events · newest first</p>
+    </div>
   </div>
-  <div style="padding:16px 0">
-    <p id="alert-history-status">Loading recent alerts...</p>
-    <div id="alert-history-list" style="display:grid;gap:10px"></div>
+  <div class="events-toolbar">
+    <input id="alert-search" type="search" placeholder="Search alerts…" autocomplete="off" aria-label="Search alerts">
+    <select id="alert-severity-filter" aria-label="Filter by severity">
+      <option value="all">All severities</option>
+      <option value="critical">Critical</option>
+      <option value="warning">Warning</option>
+      <option value="info">Info</option>
+    </select>
   </div>
+  <p id="alert-history-status">Loading recent alerts...</p>
+  <div id="alert-history-list" class="events-list"></div>
 </section>
 
+
+<section id="backups-section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">DATA PROTECTION</div>
+      <h2>PostgreSQL Backups</h2>
+      <p>Local archive and Google Drive backup status</p>
+    </div>
+  </div>
+  <div class="maintenance-card">
+    <div class="maintenance-header">
+      <div>
+        <div class="maintenance-label">BACKUP STATUS</div>
+        <div class="maintenance-status" id="backup-status">Loading backup status…</div>
+      </div>
+      <span class="maintenance-badge" id="backup-badge">UNAVAILABLE</span>
+    </div>
+    <div class="maintenance-metrics backup-grid">
+      <div><span>Last Local Backup</span><strong id="backup-local">Loading…</strong></div>
+      <div><span>Last Cloud Backup</span><strong id="backup-cloud">Loading…</strong></div>
+    </div>
+    <div class="maintenance-metrics backup-storage">
+      <div>
+        <span>Google Drive Storage</span>
+        <strong id="backup-storage-text">Loading…</strong>
+        <div class="backup-progress" role="progressbar" aria-label="Google Drive storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="backup-storage-bar"></span></div>
+      </div>
+    </div>
+    <div class="backup-actions">
+      <button id="backup-now" class="refresh-btn" type="button">Backup Now</button>
+      <span id="backup-message" class="sub">Status is refreshed automatically.</span>
+    </div>
+  </div>
+  <div class="maintenance-card backup-files-card">
+    <div class="backup-files-heading">
+      <h3>Local Backup Files</h3>
+      <p>Download a complete backup folder as a temporary ZIP archive</p>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="backup-files-table">
+        <thead><tr><th>Name</th><th>Date</th><th>Download</th></tr></thead>
+        <tbody id="backup-files-body"><tr><td colspan="3">Loading local backups…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="backup-files-message" class="backup-files-empty" hidden></div>
+  </div>
+</section>
 
 <section id="charts-section">
   <div class="section-heading">
@@ -1166,14 +1594,286 @@ canvas { opacity: .92; }
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const COLORS=["#58a6ff","#3fb950","#d29922","#f85149","#bc8cff","#39c5cf","#ff7b72","#a5d6ff","#7ee787","#ffa657"];
+const COLORS=["#79b8ff","#5cc98a","#e5ac52","#e16b67","#c4a1ff","#5ec8d8","#ff9b7a","#a8d4ff","#7ee787","#ffb45e"];
 const bytesF=v=>{const u=["B/s","KB/s","MB/s","GB/s"];let i=0;while(Math.abs(v)>=1024&&i<3){v/=1024;i++}return v.toFixed(i>0&&Math.abs(v)<10?1:0)+" "+u[i]};
 const FMT={pct:v=>v.toFixed(v<10?1:0)+"%",c:v=>v.toFixed(0)+"°C",bytes:bytesF,gib:v=>(v/2**30).toFixed(2)+" GiB",
   rpm:v=>Math.round(v)+" rpm",mhz:v=>Math.round(v)+" MHz",w:v=>v.toFixed(1)+" W",num:v=>v.toFixed(2),iops:v=>v.toFixed(v<10?1:0)+"/s"};
 const gib=b=>(b/2**30).toFixed(1)+" GiB";
 const fmtUp=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+"d ":"")+h+"h "+m+"m"};
+const fmtContainerUptime=(seconds,state)=>{
+  if (!["running","restarting"].includes(state) || !Number.isInteger(seconds) || seconds < 0) return "—";
+  return fmtUp(seconds);
+};
 const fmtTime=(t,h)=>{const d=new Date(t*1000),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   return h<=24?hm:d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+hm};
+
+const TELEMETRY_FRESH_SECONDS = 90;
+let lastTelemetryTs = null;
+
+function refreshTelemetryHealthIndicator() {
+  // Driven only by /api/now sample time (d.ts). Independent of host
+  // activity snapshot age shown under "Snapshot freshness".
+  const side = document.getElementById("side-health");
+  const header = document.getElementById("header-health");
+  const now = Date.now() / 1000;
+  let label = "Unavailable";
+  let detail = "Container metrics unavailable";
+  if (Number.isFinite(lastTelemetryTs)) {
+    const age = now - lastTelemetryTs;
+    if (age <= TELEMETRY_FRESH_SECONDS) {
+      label = "LIVE";
+      detail = "Container metrics live";
+    } else {
+      label = "STALE";
+      detail = `Container metrics stale (${Math.max(0, Math.floor(age))}s)`;
+    }
+  }
+  const metricsKey = label.toLowerCase();
+  if (side) {
+    side.textContent = label;
+    side.dataset.metrics = metricsKey;
+  }
+  if (header) {
+    header.textContent = detail;
+    header.dataset.metrics = metricsKey;
+  }
+}
+
+const STATUS_LEVELS = ["healthy", "info", "unknown", "warning", "critical"];
+const statusHistory = new Map();
+
+function normalizeStatus(level) {
+  if (level === "danger") return "critical";
+  if (level === "neutral") return "info";
+  return STATUS_LEVELS.includes(level) ? level : "unknown";
+}
+
+function stableStatus(key, next) {
+  next = normalizeStatus(next);
+  const previous = statusHistory.get(key);
+  if (!previous || next === "unknown" || next === "critical") {
+    statusHistory.set(key, {level: next, candidate: null, count: 0});
+    return next;
+  }
+  if (previous.level === next) {
+    statusHistory.set(key, {level: next, candidate: null, count: 0});
+    return next;
+  }
+  const count = previous.candidate === next ? previous.count + 1 : 1;
+  if (count >= 2) {
+    statusHistory.set(key, {level: next, candidate: null, count: 0});
+    return next;
+  }
+  statusHistory.set(key, {...previous, candidate: next, count});
+  return previous.level;
+}
+
+function setStatusBorder(element, level, key=null) {
+  if (!element) return;
+  const resolved = key ? stableStatus(key, level) : normalizeStatus(level);
+  element.classList.add("status-border");
+  for (const name of [...STATUS_LEVELS, "danger", "neutral"]) {
+    element.classList.remove(`status-${name}`);
+  }
+  element.classList.add(`status-${resolved}`);
+}
+
+function setCardStatusById(id, level, key=id) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  const card = element.closest(".card, .summary-card, .maintenance-card") || element.parentElement;
+  setStatusBorder(card, level, key);
+}
+
+function thresholdStatus(value, warning, critical) {
+  if (!Number.isFinite(value)) return "unknown";
+  if (value >= critical) return "critical";
+  if (value >= warning) return "warning";
+  return "healthy";
+}
+
+function worstStatus(levels) {
+  const rank = {healthy: 0, info: 1, unknown: 2, warning: 3, critical: 4};
+  return levels.map(normalizeStatus).reduce(
+    (worst, level) => rank[level] > rank[worst] ? level : worst,
+    "healthy"
+  );
+}
+
+function networkStatus(network) {
+  const preferred = network?.preferred_interface;
+  const starlink = network?.interface_connectivity?.wlp2s0?.status || network?.starlink;
+  const backup = network?.interface_connectivity?.enp1s0?.status || network?.dialog;
+  const known = value => ["reachable", "unreachable", "http_error"].includes(value);
+  const down = value => value === "unreachable" || value === "http_error";
+  if (!["wlp2s0", "enp1s0"].includes(preferred) || !known(starlink) || !known(backup)) return "unknown";
+  if (down(starlink) && down(backup)) return "critical";
+  if (preferred === "enp1s0" && backup === "reachable" && down(starlink)) return "warning";
+  if (preferred === "wlp2s0" && starlink === "reachable" && backup === "reachable") return "healthy";
+  if (preferred === "wlp2s0" && starlink === "reachable" && down(backup)) return "info";
+  return "info";
+}
+
+function dockerHealthState(item) {
+  const state = String(item?.state || "unknown").toLowerCase();
+  const health = String(item?.health || "none").toLowerCase();
+  if (state === "running" && health === "healthy") {
+    return {label: "Running · Healthy", level: "healthy"};
+  }
+  if (state === "running" && health === "unhealthy") {
+    return {label: "Running · Unhealthy", level: item?.critical ? "danger" : "warning"};
+  }
+  if (state === "running" && health === "starting") {
+    return {label: "Running · Starting", level: "warning"};
+  }
+  if (state === "running" && ["none", "unknown", ""].includes(health)) {
+    return {label: "Running · No check", level: "neutral"};
+  }
+  if (["exited", "stopped", "dead"].includes(state)) {
+    const level = item?.expected_running ? (item?.critical ? "danger" : "warning") : "neutral";
+    return {label: `Stopped · ${state}`, level};
+  }
+  if (["starting", "created", "restarting"].includes(state)) {
+    return {label: `${state[0].toUpperCase()}${state.slice(1)} · Pending`, level: "warning"};
+  }
+  if (item?.expected_running) {
+    return {label: "Unknown · Expected", level: item?.critical ? "danger" : "warning"};
+  }
+  return {label: `${state[0].toUpperCase()}${state.slice(1)} · Unknown`, level: "neutral"};
+}
+
+function dockerInspectAssessable(dockerStatus) {
+  return dockerStatus === "ok" || dockerStatus === "partial";
+}
+
+function dockerHealthSummary(entries, containers, dockerStatus) {
+  const expected = entries.filter(([_, item]) => item.expected_running);
+  const basis = expected.length ? expected : entries;
+  const classified = basis.map(([name, item]) => ({name, ...dockerHealthState(item)}));
+  const healthy = classified.filter(item => item.level === "healthy").length;
+  const noCheck = classified.filter(item => item.level === "neutral" &&
+    item.label === "Running · No check").length;
+  const attention = classified.filter(item =>
+    item.level === "danger" || item.level === "warning"
+  ).length;
+  const knownState = entries.filter(([_, item]) =>
+    item?.state && item.state !== "unknown"
+  ).length;
+  const parts = [];
+  if (dockerInspectAssessable(dockerStatus)) {
+    parts.push(
+      `${healthy}/${basis.length}${expected.length ? " expected" : ""} healthy`
+    );
+    if (dockerStatus === "partial") {
+      parts.push(`${knownState}/${entries.length} inspected`);
+    }
+  } else {
+    parts.push(`${knownState}/${entries.length} observed`);
+  }
+  if (noCheck) parts.push(`${noCheck} no check`);
+  if (attention) parts.push(`${attention} attention`);
+  return parts.join(" · ");
+}
+
+function dockerOverallStatus(entries, dockerStatus) {
+  // ok and partial are both assessable from per-container state.
+  // partial is incomplete inventory, not a critical outage by itself.
+  if (!dockerInspectAssessable(dockerStatus)) return "unknown";
+  const expected = entries.filter(([_, item]) => item.expected_running);
+  const assessed = expected.length ? expected : entries;
+  const worst = worstStatus(assessed.map(([_, item]) => dockerHealthState(item).level));
+  if (dockerStatus === "partial" && worst === "healthy") return "info";
+  return worst;
+}
+
+const postgresContainers = new Set([
+  "imfs-pg-m1",
+  "imfs-pg-m2",
+  "imfs-pg-m3",
+  "imfs-pg-m4",
+  "imfs-pg-integration"
+]);
+const dockerControlContainers = new Set([
+  "imfs-pg-m1",
+  "imfs-pg-m2",
+  "imfs-pg-m3",
+  "imfs-pg-m4",
+  "imfs-pg-integration",
+  "homelab-test",
+  "homelab-ollama"
+]);
+
+const dockerControlInFlight = new Set();
+
+async function requestDockerAction(container, action, buttons, status, state, detail, logPanel, logOutput, closeLogs) {
+  if (action === "stop" || action === "restart") {
+    const verb = action === "stop" ? "stop" : "restart";
+    const postgresWarning = postgresContainers.has(container)
+      ? `WARNING: This will ${verb} PostgreSQL container "${container}". Existing database connections may be interrupted.`
+      : `${verb[0].toUpperCase()}${verb.slice(1)} container "${container}"?`;
+    if (!window.confirm(postgresWarning)) return;
+    if (postgresContainers.has(container) &&
+        window.prompt(`Type ${container} to confirm this PostgreSQL action:`) !== container) {
+      status.className = "docker-control-status error";
+      status.textContent = "Confirmation did not match; no action sent";
+      return;
+    }
+  }
+  if (dockerControlInFlight.has(container)) return;
+
+  dockerControlInFlight.add(container);
+  buttons.forEach(button => { button.disabled = true; });
+  status.className = "docker-control-status";
+  status.textContent = `${action} requested...`;
+  try {
+    const response = await fetch("/api/docker/control", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({container, action})
+    });
+    if (response.status === 401) { location = "/login"; return; }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = Array.isArray(result.detail)
+        ? result.detail.map(part => part.msg || part).join("; ")
+        : (result.detail || result.message || `HTTP ${response.status}`);
+      throw new Error(detail);
+    }
+    if (result.status === "failed") {
+      throw new Error(result.message || "Docker action failed");
+    }
+    if (result.status === "pending") {
+      status.className = "docker-control-status error";
+      status.textContent = result.message || `${action} queued; host controller did not respond`;
+      return;
+    }
+    if (action === "logs") {
+      logOutput.textContent = result.logs || "No recent logs.";
+      logPanel.style.display = "block";
+      closeLogs.style.display = "inline-block";
+    }
+    if (result.state) {
+      const nextHealthState = dockerHealthState(result);
+      state.className = `docker-health-badge docker-health-${nextHealthState.level}`;
+      state.textContent = nextHealthState.label;
+      detail.textContent = "Container status updated · Restarts will appear on the next health poll";
+    }
+    status.className = "docker-control-status ok";
+    status.textContent = result.status === "pending"
+      ? `${action} queued; waiting for host controller`
+      : (result.message || `${action} completed`);
+    if (action !== "logs") {
+      setTimeout(() => pollReliability(false).catch(() => {}), 5000);
+    }
+  } catch (error) {
+    status.className = "docker-control-status error";
+    status.textContent = error.message || "Docker action failed";
+  } finally {
+    dockerControlInFlight.delete(container);
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
 
 class Chart{
   constructor(parent,cfg){
@@ -1205,32 +1905,56 @@ class Chart{
   }
   draw(){
     const d=this.data;if(!d||!this.wrap.clientWidth)return;
-    const S=this.cfg.series,f=FMT[this.cfg.fmt||"num"],W=this.wrap.clientWidth,H=170,dpr=window.devicePixelRatio||1;
+    const S=this.cfg.series,f=FMT[this.cfg.fmt||"num"];
+    const W=this.wrap.clientWidth,H=Math.max(200,this.wrap.clientHeight||220);
+    const dpr=window.devicePixelRatio||1;
     const cv=this.cv;cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+"px";cv.style.height=H+"px";
     const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);
-    const L=58,R=8,T=8,B=22,pw=W-L-R,ph=H-T-B;
+    const L=62,R=10,T=10,B=26,pw=W-L-R,ph=H-T-B;
     let lo=Infinity,hi=-Infinity;
     S.forEach(s=>(d.series[s.key]||[]).forEach(v=>{if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}}));
-    if(!isFinite(lo)){g.fillStyle="#8b949e";g.font="13px system-ui";g.fillText("collecting data…",L,H/2);this.legend(null);return}
+    if(!isFinite(lo)){
+      g.fillStyle="#8292a3";g.font="13px Segoe UI, system-ui, sans-serif";
+      g.fillText("collecting data…",L,H/2);this.legend(null);return;
+    }
     const span=(hi-lo)||Math.max(Math.abs(hi),1)*0.1;
     lo=this.cfg.min!=null?this.cfg.min:lo-span*0.1;
     hi=this.cfg.max!=null?this.cfg.max:hi+span*0.15;
     const floor=this.cfg.floor||1;if(hi<lo+floor)hi=lo+floor;
-    const t1=d.t[d.t.length-1],t0=t1-this.hours*3600;
+    const t1=d.t[d.t.length-1];
+    let t0=t1-this.hours*3600;
+    let firstTs=null;
+    S.forEach(s=>{
+      const vals=d.series[s.key]||[];
+      d.t.forEach((t,j)=>{if(vals[j]!=null&&(firstTs==null||t<firstTs))firstTs=t});
+    });
+    if(firstTs!=null&&firstTs>t0){
+      const pad=Math.max((t1-firstTs)*0.03,120);
+      t0=Math.max(t0,firstTs-pad);
+    }
+    if(t1<=t0)t0=t1-Math.max(this.hours*3600,3600);
     const x=t=>L+(t-t0)/(t1-t0)*pw,y=v=>T+ph-(v-lo)/(hi-lo)*ph;
-    g.font="11px system-ui";g.fillStyle="#8b949e";g.lineWidth=1;
-    for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,yy=y(v);
-      g.strokeStyle="#262d36";g.beginPath();g.moveTo(L,yy);g.lineTo(W-R,yy);g.stroke();
-      g.textAlign="right";g.fillText(f(v),L-6,yy+4)}
-    for(let i=0;i<=3;i++){const tt=t0+(t1-t0)*i/3;
-      g.textAlign=i===0?"left":i===3?"right":"center";g.fillText(fmtTime(tt,this.hours),x(tt),H-6)}
+    g.font="11px Consolas, monospace";g.fillStyle="#aebbc7";g.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const v=lo+(hi-lo)*i/4,yy=y(v);
+      g.strokeStyle=i===0||i===4?"#3a4b5d":"#273544";
+      g.beginPath();g.moveTo(L,yy);g.lineTo(W-R,yy);g.stroke();
+      g.textAlign="right";g.fillText(f(v),L-8,yy+4);
+    }
+    for(let i=0;i<=3;i++){
+      const tt=t0+(t1-t0)*i/3;
+      g.textAlign=i===0?"left":i===3?"right":"center";
+      g.fillText(fmtTime(tt,this.hours),x(tt),H-7);
+    }
     S.forEach((s,i)=>{
       const vals=d.series[s.key]||[];
-      g.strokeStyle=s.color||COLORS[i%COLORS.length];g.lineWidth=1.6;g.beginPath();
+      const color=s.color||COLORS[i%COLORS.length];
+      g.strokeStyle=color;g.lineWidth=2.15;g.lineJoin="round";g.lineCap="round";g.beginPath();
       let pen=false;
       d.t.forEach((t,j)=>{
         const v=vals[j];
         if(v==null||(j>0&&t-d.t[j-1]>3*d.bucket)){pen=false;if(v==null)return}
+        if(t<t0){pen=false;return}
         const X=x(t),Y=y(v);
         if(!pen){g.moveTo(X,Y);pen=true}else g.lineTo(X,Y);
       });
@@ -1238,16 +1962,25 @@ class Chart{
     });
     let hj=null;
     if(this.hx!=null&&this.hx>=L&&this.hx<=W-R){
-      let best=1e9;d.t.forEach((t,j)=>{const dd=Math.abs(x(t)-this.hx);if(dd<best){best=dd;hj=j}});
+      let best=1e9;
+      d.t.forEach((t,j)=>{
+        if(t<t0)return;
+        const dd=Math.abs(x(t)-this.hx);
+        if(dd<best){best=dd;hj=j}
+      });
     }
     if(hj!=null){
       const X=x(d.t[hj]);
-      g.strokeStyle="#8b949e";g.lineWidth=1;g.beginPath();g.moveTo(X,T);g.lineTo(X,T+ph);g.stroke();
+      g.strokeStyle="#8292a3";g.lineWidth=1;g.setLineDash([3,3]);
+      g.beginPath();g.moveTo(X,T);g.lineTo(X,T+ph);g.stroke();g.setLineDash([]);
       let html=`<b>${fmtTime(d.t[hj],this.hours)}</b>`;
-      S.forEach((s,i)=>{const v=(d.series[s.key]||[])[hj];if(v==null)return;
+      S.forEach((s,i)=>{
+        const v=(d.series[s.key]||[])[hj];if(v==null)return;
         const c=s.color||COLORS[i%COLORS.length];
-        g.fillStyle=c;g.beginPath();g.arc(X,y(v),3,0,7);g.fill();
-        html+=`<br><span class="dot" style="background:${c}"></span>${esc(s.label)}: ${f(v)}`});
+        g.fillStyle="#080b10";g.beginPath();g.arc(X,y(v),5,0,7);g.fill();
+        g.fillStyle=c;g.beginPath();g.arc(X,y(v),3.5,0,7);g.fill();
+        html+=`<br><span class="dot" style="background:${c}"></span>${esc(s.label)}: ${f(v)}`;
+      });
       this.tip.innerHTML=html;this.tip.style.display="block";
       const tw=this.tip.offsetWidth;this.tip.style.left=Math.max(0,Math.min(this.hx+12,W-tw))+"px";
     }else this.tip.style.display="none";
@@ -1255,7 +1988,7 @@ class Chart{
   }
 }
 
-const PAGES=["overview","health","network","storage","databases","alerts"];
+const PAGES=["overview","health","network","storage","databases","alerts","backups"];
 let info={},m={},charts=[],built=false,page=(location.hash||"#overview").slice(1);
 const hours=()=>+$("#range").value;
 
@@ -1303,14 +2036,35 @@ function updateStats(){
   if(sideUptime)sideUptime.textContent=uptime;
   if(headerLoad)headerLoad.textContent=`${cpuText} / ${memoryText}`;
   if(page!=="overview")return;
+  const temperature=pk?m[pk]:null;
+  const memoryPercent=Number.isFinite(memory)&&info.mem_total>0?100*memory/info.mem_total:null;
+  const memoryPressure=m["psi.memory"];
+  const memoryStatus=worstStatus([
+    thresholdStatus(memoryPercent,75,90),
+    thresholdStatus(memoryPressure,5,20)
+  ]);
+  const swap=m["swap.used"];
+  const swapPercent=Number.isFinite(swap)&&info.swap_total>0?100*swap/info.swap_total:null;
+  const swapStatus=Number.isFinite(swap)&&info.swap_total===0&&swap===0
+    ? "info" : thresholdStatus(swapPercent,25,60);
+  let batteryStatus="unknown";
+  if(Number.isFinite(b.percent)) {
+    const health=Number.isFinite(b.health_pct)?b.health_pct:100;
+    if(health<50) batteryStatus="critical";
+    else if(health<70) batteryStatus="warning";
+    else if(b.ac) batteryStatus="healthy";
+    else if(b.percent<20) batteryStatus="critical";
+    else if(b.percent<40) batteryStatus="warning";
+    else batteryStatus="healthy";
+  }
   const rows=[
-    ["CPU",cpu==null?"…":cpu.toFixed(0)+"%",`load ${(info.load||[]).join(" / ")} · ${info.cpus||"?"} threads`],
-    ["CPU temp",pk?m[pk].toFixed(0)+"°C":"n/a",info.fan_rpm==null?"":`fan ${Math.round(info.fan_rpm)} rpm`+(info.fan_rpm===0?" (stopped)":"")],
-    ["Memory",memory==null?"…":gib(memory),`of ${gib(info.mem_total||0)} · pressure ${m["psi.memory"]??"n/a"}%`],
-    ["Swap",m["swap.used"]==null?"…":gib(m["swap.used"]),`of ${gib(info.swap_total||0)}`],
-    ["Battery",b.percent==null?"n/a":b.percent+"%",`${b.status||"?"} · ${b.ac?"on AC":"ON BATTERY"} · health ${b.health_pct??"?"}%`+(b.hours_left?` · ${b.hours_left} h left`:"")],
-    ["Uptime",fmtUp(info.uptime||0),`throttle events: ${info.throttle??"n/a"}`]];
-  $("#stats").innerHTML=rows.map(([h,v,s])=>`<div class="card"><h2>${h}</h2><div class="big">${esc(v)}</div><div class="sub">${esc(s)}</div></div>`).join("");
+    ["cpu","CPU",cpu==null?"…":cpu.toFixed(0)+"%",`load ${(info.load||[]).join(" / ")} · ${info.cpus||"?"} threads`,thresholdStatus(cpu,70,90)],
+    ["cpu-temp","CPU temp",Number.isFinite(temperature)?temperature.toFixed(0)+"°C":"n/a",info.fan_rpm==null?"":`fan ${Math.round(info.fan_rpm)} rpm`+(info.fan_rpm===0?" (stopped)":""),thresholdStatus(temperature,75,85)],
+    ["memory","Memory",memory==null?"…":gib(memory),`of ${gib(info.mem_total||0)} · pressure ${memoryPressure??"n/a"}%`,memoryStatus],
+    ["swap","Swap",swap==null?"…":gib(swap),`of ${gib(info.swap_total||0)}`,swapStatus],
+    ["battery","Battery",b.percent==null?"n/a":b.percent+"%",`${b.status||"?"} · ${b.ac?"on AC":"ON BATTERY"} · health ${b.health_pct??"?"}%`+(b.hours_left?` · ${b.hours_left} h left`:""),batteryStatus],
+    ["uptime","Uptime",fmtUp(info.uptime||0),`throttle events: ${info.throttle??"n/a"}`,Number.isFinite(info.uptime)&&info.uptime>=0?"info":"unknown"]];
+  $("#stats").innerHTML=rows.map(([key,h,v,s,level])=>`<div class="card status-border status-${stableStatus(`metric-${key}`,level)}"><h2>${h}</h2><div class="big">${esc(v)}</div><div class="sub">${esc(s)}</div></div>`).join("");
 }
 
 function updateNetworkTraffic(){
@@ -1342,7 +2096,8 @@ function render(){
     network: "Network",
     storage: "Storage",
     databases: "Docker",
-    alerts: "Events"
+    alerts: "Events",
+    backups: "Backups"
   };
   if (!PAGES.includes(page)) page = "overview";
 
@@ -1370,6 +2125,7 @@ function render(){
   show("network-status-section", page === "network");
   show("postgres-health-section", page === "databases");
   show("alert-history-section", page === "alerts");
+  show("backups-section", page === "backups");
   show("charts-section", isCharts);
   show("stats", page === "overview", "grid");
 
@@ -1423,14 +2179,21 @@ async function pollActivity(schedule = true){
 
     const dbs = Object.values(d.databases);
     if (dbs.length !== 5 || dbs.some(x =>
-        !Number.isInteger(x.total) || !Number.isInteger(x.active) ||
-        !Number.isInteger(x.idle_in_transaction))) {
+        !x || !["ok", "unknown"].includes(x.status))) {
       throw new Error("Incomplete activity data");
     }
 
-    const total = dbs.reduce((sum, x) => sum + x.total, 0);
-    const active = dbs.reduce((sum, x) => sum + x.active, 0);
-    const transactions = dbs.reduce((sum, x) =>
+    const availableDbs = dbs.filter(x => x.status === "ok");
+    if (availableDbs.some(x =>
+        !Number.isInteger(x.total) || x.total < 0 ||
+        !Number.isInteger(x.active) || x.active < 0 ||
+        !Number.isInteger(x.idle_in_transaction) || x.idle_in_transaction < 0)) {
+      throw new Error("Invalid activity data");
+    }
+    const unavailableDbCount = dbs.length - availableDbs.length;
+    const total = availableDbs.reduce((sum, x) => sum + x.total, 0);
+    const active = availableDbs.reduce((sum, x) => sum + x.active, 0);
+    const transactions = availableDbs.reduce((sum, x) =>
       sum + x.idle_in_transaction, 0);
 
     const sessions = d.sessions || {};
@@ -1472,9 +2235,12 @@ async function pollActivity(schedule = true){
 
       if (!statusEl || !ipEl) continue;
 
-      if (network.status !== "ok" || item?.status !== "ok") {
+      // Show per-interface inventory even when overall network.status is unknown.
+      // Overall status must not blank valid WAN/Tailscale readings.
+      if (item?.status !== "ok") {
         statusEl.textContent = "Unknown";
         ipEl.textContent = "Status unavailable";
+        setStatusBorder(statusEl.parentElement, "unknown", `network-${name}`);
         continue;
       }
 
@@ -1485,6 +2251,7 @@ async function pollActivity(schedule = true){
         statusEl.textContent = item.ipv4
           ? "Interface present"
           : "No IPv4 address";
+        setStatusBorder(statusEl.parentElement, item.ipv4 ? "info" : "unknown", `network-${name}`);
       } else {
         statusEl.textContent = item.operstate === "UP"
           ? (preferred ? "UP · Preferred route" : "UP · Not preferred")
@@ -1519,17 +2286,29 @@ async function pollActivity(schedule = true){
         statusEl.textContent = `${role} · ${reachability}`;
         ipEl.textContent =
           `${item.ipv4 || "No IPv4 address"} · Checked ${checkAge(checkedAt)}${latency}`;
+        let connectionLevel = "unknown";
+        if (result?.status === "reachable") connectionLevel = "healthy";
+        else if (["unreachable", "http_error"].includes(result?.status)) {
+          connectionLevel = preferred ? "critical" : "info";
+          if (name === "wlp2s0" && network.preferred_interface === "enp1s0") {
+            connectionLevel = "warning";
+          }
+        }
+        setStatusBorder(statusEl.parentElement, connectionLevel, `network-${name}`);
       }
     }
 
     const connectivityNote = document.getElementById("net-connectivity-note");
     if (connectivityNote) {
       connectivityNote.textContent = network.status === "ok"
-        ? "Internet checks: active connection every 5 minutes, backup every 30 minutes. Results reflect the last check; automatic failover has not been tested."
-        : "Network status unavailable or incomplete. Internet reachability cannot be confirmed.";
+        ? "Internet checks: active connection every 5 minutes, backup every 30 minutes. Results reflect the last check; automatic failover has not been tested. Reachability comes from HTTP probes, not Wi-Fi association alone."
+        : "Overall network status incomplete (for example missing preferred WAN inventory). Available interface readings are still shown. Internet reachability cannot be confirmed from association alone.";
     }
 
-    count.textContent = `${total} connection${total === 1 ? "" : "s"} · ${active} active`;
+    count.textContent = availableDbs.length
+      ? `${total} connection${total === 1 ? "" : "s"} · ${active} active` +
+        (unavailableDbCount ? ` · ${unavailableDbCount} DB unavailable` : "")
+      : "Unavailable";
     freshness.textContent = `${d.age_seconds}s ago`;
 
     const activityDetected =
@@ -1541,18 +2320,33 @@ async function pollActivity(schedule = true){
       statusText.textContent = "Activity detected — verify before maintenance";
       badge.textContent = "ACTIVITY DETECTED";
       note.textContent =
-        "One or more database connections, SSH connections, or local sessions are present. Session counts do not prove someone is actively working. Confirm with teammates before maintenance.";
-    } else if (sshValid && localValid) {
+        "One or more database connections, SSH connections, or local sessions are present. Session counts do not prove someone is actively working. Confirm with teammates before maintenance."
+        + (unavailableDbCount
+          ? ` ${unavailableDbCount} database check${unavailableDbCount === 1 ? "" : "s"} unavailable; totals exclude those databases.`
+          : "");
+      setCardStatusById("maintenance-status-text", "warning", "maintenance");
+    } else if (unavailableDbCount === 0 && sshValid && localValid) {
       statusText.textContent = "No activity observed";
       badge.textContent = "NO ACTIVITY OBSERVED";
       note.textContent =
         "No database connections, SSH connections, or local sessions were observed. Background jobs and brief activity may be missed. Confirm with teammates before maintenance.";
+      setCardStatusById("maintenance-status-text", "healthy", "maintenance");
     } else {
       statusText.textContent = "Activity status incomplete";
       badge.textContent = "UNKNOWN";
-      note.textContent =
-        "No activity was detected in the available readings, but one or more session checks are unavailable. Do not assume the workstation is idle.";
+      note.textContent = unavailableDbCount
+        ? `${unavailableDbCount} database check${unavailableDbCount === 1 ? "" : "s"} unavailable. Do not assume the workstation is idle.`
+        : "No activity was detected in the available readings, but one or more session checks are unavailable. Do not assume the workstation is idle.";
+      setCardStatusById("maintenance-status-text", "unknown", "maintenance");
     }
+    setCardStatusById(
+      "db-activity-count",
+      unavailableDbCount === 0 ? "healthy" : unavailableDbCount === 5 ? "unknown" : "warning",
+      "activity-databases"
+    );
+    setCardStatusById("ssh-activity-count", sshValid ? "healthy" : "unknown", "activity-ssh");
+    setCardStatusById("local-session-count", localValid ? "healthy" : "unknown", "activity-local");
+    setCardStatusById("last-activity", "healthy", "activity-freshness");
   } catch (e) {
     for (const id of [
       "net-starlink-status", "net-dialog-status", "net-tailscale-status"
@@ -1579,6 +2373,9 @@ async function pollActivity(schedule = true){
     freshness.textContent = "Unavailable";
     note.textContent =
       "The activity API failed or its data is stale. Do not use this reading to decide whether maintenance is safe.";
+    for (const id of ["maintenance-status-text", "db-activity-count", "ssh-activity-count", "local-session-count", "last-activity"]) {
+      setCardStatusById(id, "unknown", `unavailable-${id}`);
+    }
     throw e;
   } finally {
     if (schedule) setTimeout(() => pollActivity(true), 10000);
@@ -1607,6 +2404,9 @@ async function pollReliability(schedule = true){
     set("ov-docker-detail", "Container data unavailable");
     set("ov-storage", "Unknown");
     set("ov-storage-detail", "Storage data unavailable");
+    for (const id of ["ov-network", "ov-docker", "ov-storage", "rel-network", "rel-storage", "rel-docker"]) {
+      setCardStatusById(id, "unknown", `reliability-${id}`);
+    }
     const list = document.getElementById("rel-container-list");
     if (list) list.replaceChildren();
   };
@@ -1639,6 +2439,9 @@ async function pollReliability(schedule = true){
       `Dialog Ethernet: ${ethernetStatus}`;
 
     set("rel-network-detail", networkDetail);
+    const routeLevel = networkStatus(network);
+    setCardStatusById("rel-network", routeLevel, "reliability-network");
+    setCardStatusById("ov-network", routeLevel, "overview-network");
 
     const storage = data.storage || {};
     if (storage.status === "ok") {
@@ -1646,9 +2449,15 @@ async function pollReliability(schedule = true){
       set("rel-storage-detail",
         `${gib(storage.available_bytes)} available of ${gib(storage.total_bytes)}`
       );
+      const storageLevel = storage.level === "critical" ? "critical" :
+        storage.level === "warning" ? "warning" : "healthy";
+      setCardStatusById("rel-storage", storageLevel, "reliability-storage");
+      setCardStatusById("ov-storage", storageLevel, "overview-storage");
     } else {
       set("rel-storage", "Unknown");
       set("rel-storage-detail", "Storage check unavailable");
+      setCardStatusById("rel-storage", "unknown", "reliability-storage");
+      setCardStatusById("ov-storage", "unknown", "overview-storage");
     }
 
     const containers = data.docker?.containers || {};
@@ -1658,21 +2467,19 @@ async function pollReliability(schedule = true){
       "imfs-pg-m2",
       "imfs-pg-m3",
       "imfs-pg-m4",
-      "imfs-pg-integration"
+      "imfs-pg-integration",
+      "homelab-test",
+      "homelab-ollama"
     ];
+    // One card per monitored name — do not append duplicates outside this list.
     const entries = monitoredContainers.map(name => [
       name,
       containers[name] || {state: "unknown", health: "unknown", restarts: null}
     ]);
-    const healthy = entries.filter(([_, item]) =>
-      item.state === "running" && item.health === "healthy"
-    ).length;
-
-    set("rel-docker",
-      data.docker?.status === "ok"
-        ? `${healthy}/${entries.length} healthy`
-        : `${healthy}/${entries.length} observed`
-    );
+    const dockerStatus = data.docker?.status;
+    const dockerSummary = dockerHealthSummary(entries, containers, dockerStatus);
+    const dockerLevel = dockerOverallStatus(entries, dockerStatus);
+    set("rel-docker", dockerSummary);
     set("rel-docker-detail", `${entries.length} monitored containers`);
     set("ov-network",
       preferred === "wlp2s0" ? wifiName :
@@ -1682,9 +2489,11 @@ async function pollReliability(schedule = true){
       `${wifiName} ${wifiStatus} · Dialog Ethernet ${ethernetStatus}`
     );
     set("ov-docker",
-      data.docker?.status === "ok" ? `${healthy}/${entries.length} healthy` : "Unknown"
+      dockerSummary
     );
     set("ov-docker-detail", `${entries.length} monitored containers`);
+    setCardStatusById("rel-docker", dockerLevel, "reliability-docker");
+    setCardStatusById("ov-docker", dockerLevel, "overview-docker");
 
     if (storage.status === "ok") {
       set("ov-storage", `${storage.used_percent}% used`);
@@ -1704,11 +2513,52 @@ async function pollReliability(schedule = true){
         const detail = document.createElement("span");
 
         title.textContent = name;
-        status.textContent = `${item.state} · ${item.health}`;
+        const healthState = dockerHealthState(item);
+        setStatusBorder(card, healthState.level, `docker-${name}`);
+        status.className = `docker-health-badge docker-health-${healthState.level}`;
+        status.textContent = healthState.label;
         detail.textContent =
+          `Uptime: ${fmtContainerUptime(item.uptime_seconds, item.state)} · ` +
           `Restarts: ${item.restarts === null ? "Unknown" : item.restarts}`;
 
-        card.append(title, status, detail);
+        const controls = document.createElement("div");
+        controls.className = "docker-card-controls";
+        const controlStatus = document.createElement("span");
+        controlStatus.className = "docker-control-status";
+        const logPanel = document.createElement("div");
+        logPanel.className = "docker-log-panel";
+        const logOutput = document.createElement("pre");
+        logPanel.append(logOutput);
+        const buttons = [];
+        const authorized = dockerControlContainers.has(name);
+        const logsAuthorized = authorized || name === "server-monitor";
+        const addControl = (action, enabled) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = action[0].toUpperCase() + action.slice(1);
+          const allowed = action === "logs" ? logsAuthorized : authorized;
+          button.disabled = !allowed || !enabled;
+          button.title = allowed ? `${action} ${name}` : "Container control is not enabled for this container";
+          button.addEventListener("click", () => requestDockerAction(
+            name, action, buttons, controlStatus, status, detail, logPanel, logOutput, closeLogs
+          ));
+          buttons.push(button);
+          controls.append(button);
+        };
+        addControl("start", item.state !== "running");
+        addControl("stop", item.state === "running");
+        addControl("restart", item.state === "running");
+        addControl("logs", true);
+        const closeLogs = document.createElement("button");
+        closeLogs.type = "button";
+        closeLogs.textContent = "Close logs";
+        closeLogs.style.display = "none";
+        closeLogs.addEventListener("click", () => {
+          logPanel.style.display = "none";
+          closeLogs.style.display = "none";
+        });
+        controls.append(controlStatus, closeLogs, logPanel);
+        card.append(title, status, detail, controls);
         list.append(card);
       }
     }
@@ -1760,13 +2610,13 @@ async function pollPostgresHealth(){
     ];
 
     let healthy = 0;
+    const databaseLevels = [];
 
     for (const name of names) {
       const db = data.databases[name];
       const card = document.createElement("div");
 
-      card.style.cssText =
-        "padding:16px;border:1px solid var(--border,#444);border-radius:12px";
+      card.style.padding = "16px";
 
       const heading = document.createElement("div");
       heading.style.cssText =
@@ -1777,6 +2627,8 @@ async function pollPostgresHealth(){
 
       const state = document.createElement("span");
       const ok = db && db.status === "ok";
+      let databaseLevel = ok ? "healthy" :
+        db?.expected_running ? (db?.critical ? "critical" : "warning") : "info";
       state.textContent = ok ? "Available" : "Unknown";
       state.style.color = ok ? "#10b981" : "#f59e0b";
 
@@ -1805,9 +2657,13 @@ async function pollPostgresHealth(){
       if (ok) {
         healthy++;
 
-        const capacity = db.max_connections > 0
-          ? (100 * db.total / db.max_connections).toFixed(1) + "%"
-          : "Unknown";
+        const capacityPercent = db.max_connections > 0
+          ? 100 * db.total / db.max_connections : null;
+        const capacity = Number.isFinite(capacityPercent)
+          ? capacityPercent.toFixed(1) + "%" : "Unknown";
+        databaseLevel = worstStatus([
+          databaseLevel, thresholdStatus(capacityPercent, 70, 90)
+        ]);
 
         addMetric("Connections", db.total + " / " + db.max_connections);
         addMetric("Capacity used", capacity);
@@ -1820,12 +2676,15 @@ async function pollPostgresHealth(){
         if (db.long_running > 0 || db.idle_in_transaction > 0) {
           state.style.color = "#f59e0b";
           state.textContent = "Attention";
+          databaseLevel = "warning";
         }
       } else {
         addMetric("Metrics", "Unavailable");
       }
 
       card.appendChild(details);
+      databaseLevels.push({level: databaseLevel, expected: Boolean(db?.expected_running)});
+      setStatusBorder(card, databaseLevel, `database-${name}`);
       list.appendChild(card);
     }
 
@@ -1837,20 +2696,121 @@ async function pollPostgresHealth(){
     const dbDetail = document.getElementById("ov-databases-detail");
     if (dbSummary) dbSummary.textContent = `${healthy}/${names.length} available`;
     if (dbDetail) dbDetail.textContent = `Snapshot ${data.age_seconds}s old`;
+    const expectedLevels = databaseLevels.filter(item => item.expected);
+    const databaseOverall = worstStatus(
+      (expectedLevels.length ? expectedLevels : databaseLevels).map(item => item.level)
+    );
+    setCardStatusById("ov-databases", databaseOverall, "overview-databases");
 
   } catch (error) {
     status.textContent = "PostgreSQL health temporarily unavailable.";
     list.replaceChildren();
+    setCardStatusById("ov-databases", "unknown", "overview-databases");
     throw error;
   }
 }
 
 setInterval(pollPostgresHealth, 30000);
 
-async function pollAlertHistory(){
+let alertHistoryCache = [];
+
+function alertSeverityKey(level) {
+  const raw = String(level || "info").toLowerCase();
+  if (raw === "critical" || raw === "danger" || raw === "error") return "critical";
+  if (raw === "warning" || raw === "warn") return "warning";
+  return "info";
+}
+
+function renderAlertHistory() {
   const status = document.getElementById("alert-history-status");
   const list = document.getElementById("alert-history-list");
+  const searchEl = document.getElementById("alert-search");
+  const filterEl = document.getElementById("alert-severity-filter");
   if (!status || !list) return;
+
+  const query = String(searchEl?.value || "").trim().toLowerCase();
+  const severityFilter = String(filterEl?.value || "all").toLowerCase();
+
+  list.replaceChildren();
+
+  if (!alertHistoryCache.length) {
+    status.textContent = "No alerts recorded yet.";
+    return;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Colombo",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+
+  const filtered = alertHistoryCache.filter(event => {
+    const sev = alertSeverityKey(event.severity);
+    if (severityFilter !== "all" && sev !== severityFilter) return false;
+    if (!query) return true;
+    const hay = [
+      event.message,
+      event.severity,
+      event.delivery,
+      event.source
+    ].map(v => String(v || "").toLowerCase()).join(" ");
+    return hay.includes(query);
+  });
+
+  if (!filtered.length) {
+    status.textContent = query || severityFilter !== "all"
+      ? `No alerts match (${alertHistoryCache.length} total).`
+      : "No alerts recorded yet.";
+    return;
+  }
+
+  status.textContent = filtered.length === alertHistoryCache.length
+    ? `${filtered.length} alert${filtered.length === 1 ? "" : "s"} · newest first`
+    : `Showing ${filtered.length} of ${alertHistoryCache.length}`;
+
+  for (const event of filtered) {
+    const sev = alertSeverityKey(event.severity);
+    const item = document.createElement("article");
+    item.className = `event-card status-border status-${sev === "info" ? "info" : sev}`;
+
+    const head = document.createElement("div");
+    head.className = "event-head";
+
+    const severity = document.createElement("span");
+    severity.className = `event-severity ${sev}`;
+    severity.textContent = String(event.severity || "INFO").toUpperCase();
+
+    const delivery = document.createElement("span");
+    delivery.className = "event-delivery";
+    delivery.textContent =
+      event.delivery === "delivered" ? "Telegram delivered" :
+      event.delivery === "queued" ? "Telegram queued" : "Delivery unknown";
+
+    head.append(severity, delivery);
+
+    const message = document.createElement("div");
+    message.className = "event-message";
+    message.textContent = String(event.message || "");
+
+    const timestamp = document.createElement("div");
+    timestamp.className = "event-time";
+    const date = new Date(event.timestamp);
+    timestamp.textContent = Number.isNaN(date.getTime())
+      ? "Time unavailable"
+      : formatter.format(date) + " Sri Lanka time";
+
+    item.append(head, message, timestamp);
+    list.appendChild(item);
+  }
+}
+
+async function pollAlertHistory(){
+  const status = document.getElementById("alert-history-status");
+  if (!status) return;
 
   try {
     const response = await fetch("/api/alerts/history", {cache:"no-store"});
@@ -1867,69 +2827,16 @@ async function pollAlertHistory(){
       throw new Error("Alert history unavailable");
     }
 
-    list.replaceChildren();
-
-    if (data.events.length === 0) {
-      status.textContent = "No alerts recorded yet.";
-      return;
-    }
-
-    status.textContent = "Recent Telegram alert events · newest first";
-
-    const formatter = new Intl.DateTimeFormat("en-GB", {
-      timeZone:"Asia/Colombo",
-      day:"2-digit",
-      month:"short",
-      hour:"2-digit",
-      minute:"2-digit",
-      second:"2-digit",
-      hour12:false
-    });
-
-    for (const event of data.events) {
-      const item = document.createElement("div");
-      item.style.cssText =
-        "padding:12px 14px;border:1px solid var(--border, #444);border-radius:10px";
-
-      const heading = document.createElement("div");
-      heading.style.cssText =
-        "display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-weight:600";
-
-      const severity = document.createElement("span");
-      const level = String(event.severity || "").toUpperCase();
-      severity.textContent = level;
-      severity.style.color =
-        level === "CRITICAL" ? "#ef4444" :
-        level === "WARNING" ? "#f59e0b" : "inherit";
-
-      const delivery = document.createElement("span");
-      delivery.textContent =
-        event.delivery === "delivered" ? "Telegram delivered" :
-        event.delivery === "queued" ? "Telegram queued" : "Delivery unknown";
-
-      heading.append(severity, delivery);
-
-      const message = document.createElement("div");
-      message.style.marginTop = "7px";
-      message.textContent = String(event.message || "");
-
-      const timestamp = document.createElement("div");
-      timestamp.style.cssText =
-        "margin-top:7px;font-size:12px;opacity:.7";
-
-      const date = new Date(event.timestamp);
-      timestamp.textContent = Number.isNaN(date.getTime())
-        ? "Time unavailable"
-        : formatter.format(date) + " Sri Lanka time";
-
-      item.append(heading, message, timestamp);
-      list.appendChild(item);
-    }
+    alertHistoryCache = data.events;
+    renderAlertHistory();
   } catch (error) {
     status.textContent = "Alert history temporarily unavailable.";
     throw error;
   }
 }
+
+document.getElementById("alert-search")?.addEventListener("input", renderAlertHistory);
+document.getElementById("alert-severity-filter")?.addEventListener("change", renderAlertHistory);
 
 setInterval(pollAlertHistory, 30000);
 
@@ -1990,14 +2897,154 @@ async function pollNetworkUsage(schedule = true){
   }
 }
 
+async function downloadLocalBackup(name, button){
+  const message = $("#backup-files-message");
+  button.disabled = true;
+  message.hidden = false;
+  message.textContent = `Preparing ${name}.zip…`;
+  try {
+    const queued = await fetch(`/api/backups/${encodeURIComponent(name)}/archive`, {method: "POST"});
+    const queuedData = await queued.json();
+    if (queued.status === 401) { location = "/login"; return; }
+    if (!queued.ok) throw new Error(queuedData.detail || "Archive request failed");
+
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const response = await fetch(`/api/backups/archive/${queuedData.request_id}`, {cache: "no-store"});
+      if (response.status === 401) { location = "/login"; return; }
+      if (response.status === 202) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Archive download failed");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${name}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message.textContent = `${name}.zip downloaded.`;
+      return;
+    }
+    throw new Error("Archive creation timed out");
+  } catch (error) {
+    message.textContent = error.message || "Archive download failed";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderBackupFiles(backups){
+  const body = $("#backup-files-body");
+  const message = $("#backup-files-message");
+  body.replaceChildren();
+  if (!Array.isArray(backups) || backups.length === 0) {
+    message.hidden = false;
+    message.textContent = "No local backup folders are available.";
+    return;
+  }
+  message.hidden = true;
+  for (const backup of backups) {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    const date = document.createElement("td");
+    const action = document.createElement("td");
+    const button = document.createElement("button");
+    name.textContent = backup.name;
+    date.textContent = new Date(backup.timestamp * 1000).toLocaleString();
+    button.type = "button";
+    button.className = "backup-download";
+    button.textContent = "↓";
+    button.title = `Download ${backup.name} as ZIP`;
+    button.setAttribute("aria-label", button.title);
+    button.addEventListener("click", () => downloadLocalBackup(backup.name, button));
+    action.appendChild(button);
+    row.append(name, date, action);
+    body.appendChild(row);
+  }
+}
+
+function renderBackupStatus(data){
+  const state = ["running", "successful", "failed", "unavailable"].includes(data?.status) ? data.status : "unavailable";
+  const status = $("#backup-status"), badge = $("#backup-badge"), button = $("#backup-now");
+  status.textContent = state[0].toUpperCase() + state.slice(1);
+  status.className = `maintenance-status backup-state-${state}`;
+  badge.textContent = state.toUpperCase();
+  badge.className = `maintenance-badge backup-state-${state}`;
+  button.disabled = state === "running";
+
+  const renderTime = (selector, item) => {
+    const element = $(selector);
+    const itemState = ["successful", "failed"].includes(item?.status) ? item.status : "unavailable";
+    const timestamp = Number.isInteger(item?.timestamp) ? new Date(item.timestamp * 1000).toLocaleString() : "Unavailable";
+    element.textContent = itemState === "unavailable" ? "Unavailable" : `${itemState === "successful" ? "Successful" : "Failed"} · ${timestamp}`;
+    element.className = `backup-state-${itemState}`;
+  };
+  renderTime("#backup-local", data?.last_local);
+  renderTime("#backup-cloud", data?.last_cloud);
+
+  const storage = data?.storage || {};
+  const storageOk = storage.status === "ok" && Number.isFinite(storage.total) && storage.total > 0 && Number.isFinite(storage.used) && Number.isFinite(storage.free);
+  const units = value => {
+    const names = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let amount = value, index = 0;
+    while (amount >= 1024 && index < names.length - 1) { amount /= 1024; index++; }
+    return `${amount.toFixed(index > 2 ? 1 : 0)} ${names[index]}`;
+  };
+  const percent = storageOk ? Math.min(100, Math.max(0, storage.used / storage.total * 100)) : 0;
+  $("#backup-storage-text").textContent = storageOk ? `${units(storage.used)} used · ${units(storage.free)} free` : "Unavailable";
+  $("#backup-storage-bar").style.width = `${percent}%`;
+  $(".backup-progress").setAttribute("aria-valuenow", String(Math.round(percent)));
+  $("#backup-message").textContent = data?.message || "Backup status is unavailable";
+  renderBackupFiles(data?.backups);
+}
+
+async function pollBackups(schedule = true){
+  try {
+    const response = await fetch("/api/backups", {cache: "no-store"});
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error("Backup status unavailable");
+    renderBackupStatus(await response.json());
+  } catch (error) {
+    renderBackupStatus({status: "unavailable", message: "Backup status is unavailable"});
+  } finally {
+    if (schedule) setTimeout(() => pollBackups(true), 10000);
+  }
+}
+
+$("#backup-now").addEventListener("click", async () => {
+  if (!confirm("Start the existing PostgreSQL backup and Google Drive upload now?")) return;
+  const button = $("#backup-now");
+  button.disabled = true;
+  $("#backup-message").textContent = "Queuing backup…";
+  try {
+    const response = await fetch("/api/backups/run", {method: "POST"});
+    const data = await response.json();
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error(data.detail || "Backup request failed");
+    renderBackupStatus(data);
+  } catch (error) {
+    $("#backup-message").textContent = error.message || "Backup request failed";
+    button.disabled = false;
+  }
+});
+
 async function poll(schedule = true){
   try{
     const r=await fetch("/api/now");
     if(r.status===401){location="/login";return}
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();m=d.m||{};info=d.info||{};
+    if (Number.isFinite(d.ts)) lastTelemetryTs = d.ts;
+    refreshTelemetryHealthIndicator();
     updateNetworkTraffic();
     if(d.ts&&!built){built=true;render()}else updateStats();
   }catch(e){
+    refreshTelemetryHealthIndicator();
     if (!schedule) throw e;
   }finally{
     if(schedule) setTimeout(() => poll(true), built?10000:3000);
@@ -2033,10 +3080,13 @@ async function triggerRefresh(){
     const d = await res.json();
     m = d.m || {};
     info = d.info || {};
+    if (Number.isFinite(d.ts)) lastTelemetryTs = d.ts;
+    refreshTelemetryHealthIndicator();
     updateNetworkTraffic();
     if (d.ts && !built) { built = true; render(); } else { updateStats(); }
     hwOk = true;
   } catch (err) {
+    refreshTelemetryHealthIndicator();
     hwError = err;
   }
 
@@ -2066,7 +3116,8 @@ async function triggerRefresh(){
     pollReliability(false),
     pollPostgresHealth(),
     pollAlertHistory(),
-    pollNetworkUsage(false)
+    pollNetworkUsage(false),
+    pollBackups(false)
   ]);
 
   const failedChecks = checkResults.filter(r => r.status === "rejected");
@@ -2084,7 +3135,7 @@ async function triggerRefresh(){
   const lastActText = lastActEl ? lastActEl.textContent : "";
   const hostAgeMatch = lastActText.match(/(\d+)s ago/);
   const hostAgeSec = hostAgeMatch ? parseInt(hostAgeMatch[1], 10) : null;
-  const hostIsStale = hostAgeSec !== null && hostAgeSec > 60;
+  const hostIsStale = hostAgeSec !== null && hostAgeSec > TELEMETRY_FRESH_SECONDS;
 
   if (status) {
     if (!hwOk) {
@@ -2123,6 +3174,7 @@ pollReliability();
 pollAlertHistory();
 pollPostgresHealth();
 pollNetworkUsage();
+pollBackups();
 $("#range").value=localStorage.getItem("sm_range")||"6";
 $("#range").onchange=()=>{localStorage.setItem("sm_range",$("#range").value);charts.forEach(c=>c.load(hours()))};
 $("#out").onclick=async()=>{await fetch("/api/logout",{method:"POST"});location="/login"};

@@ -1,0 +1,10 @@
+[Unit]
+Description=Trigger restricted Docker control requests
+Documentation=https://github.com/chin00kz/server-monitor-w07
+
+[Path]
+PathChanged=/home/chinookz/homelab/docker/server-monitor/data/docker-control/request.json
+Unit=server-docker-control.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+name: server-monitor-test
+
+services:
+  homelab-test:
+    image: alpine:3.20
+    container_name: homelab-test
+    command: ["sh", "-c", "i=0; while true; do i=$$((i + 1)); echo homelab-test-log-$$i; sleep 5; done"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 32m
+    cpus: 0.10
+    pids_limit: 20
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
