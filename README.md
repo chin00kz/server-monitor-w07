@@ -110,7 +110,18 @@ Refresh Now performs two authenticated actions: it samples application hardware 
 
 ## Optional cloud status
 
-The separate `cloud/` publisher and `cloud-dashboard/` Vercel project provide read-only external status without opening an Ubuntu port or exposing Docker access. The publisher reuses `data/activity/latest.json` and SQLite metrics, sends only a sanitized latest snapshot over outbound HTTPS, and fails independently from local monitoring. Because the existing local collectors do not expose an explicit battery-activity signal, the cloud dashboard reports that field as `Unknown` rather than inferring it. Deployment details are in [cloud/DEPLOYMENT.md](cloud/DEPLOYMENT.md).
+The separate `cloud/` publisher and `cloud-dashboard/` Vercel project provide **read-only** external status without opening an Ubuntu port or exposing Docker access.
+
+Flow:
+
+1. Host systemd timer runs `cloud/publisher.py`.
+2. Publisher reads `data/activity/latest.json` + SQLite, builds an allowlisted snapshot (network, battery %, AC state, CPU/RAM/disk, IMFS Postgres services + Ollama), and upserts to Supabase with the service-role key.
+3. Vercel serves a shared-password dashboard that can only call the read-only `read_node_status` RPC with the anon key.
+4. Cloud UI: compact header + three panels (Connectivity / Power / Resources) + Workloads service cards with DB/AI icons. Live/stale/offline is derived from Supabase `received_at`.
+
+Production: https://server-monitor-cloud-dashboard.vercel.app
+
+Publisher or Supabase outages fail independently from local monitoring and Docker Control. Full setup: [cloud/DEPLOYMENT.md](cloud/DEPLOYMENT.md). Dashboard/deploy notes: [cloud-dashboard/README.md](cloud-dashboard/README.md).
 
 ## Security design
 
@@ -188,7 +199,13 @@ For maintenance, keep Docker images, Python dependencies, Ubuntu packages, and s
 ├── cloud-dashboard/
 │   ├── api/
 │   ├── lib/
-│   ├── public/index.html
+│   ├── public/
+│   │   ├── index.html
+│   │   ├── dashboard.css
+│   │   ├── dashboard.js
+│   │   └── favicon.svg
+│   ├── tests/
+│   ├── README.md
 │   └── package.json
 ├── .env.example
 ├── tests/

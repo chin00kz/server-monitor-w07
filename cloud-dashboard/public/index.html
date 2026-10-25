@@ -18,7 +18,7 @@
     </div>
   </div>
   <h1>Authorized access</h1>
-  <p class="lead">Read-only node telemetry · shared password</p>
+  <p class="lead">Read-only node status · shared password</p>
   <form id="login-form">
     <div class="field">
       <label for="password">Shared password</label>
@@ -34,52 +34,76 @@
     <div class="identity">
       <div class="brand-inline">
         <div class="brand-mark sm" aria-hidden="true">U</div>
-        <div class="kicker">Operations / cloud telemetry</div>
+        <div class="kicker">Cloud status</div>
       </div>
       <div class="host-line">
         <h1 id="node-name">Unknown host</h1>
         <span id="connection-state" class="state-badge offline"><i></i><span id="connection-label">OFFLINE</span></span>
       </div>
       <div class="host-meta">
-        <span>Uptime <strong id="uptime">Unavailable</strong></span>
-        <span>Updated <strong id="last-update">Never</strong></span>
+        <span class="meta-chip">
+          <span class="icon" data-icon="clock" aria-hidden="true"></span>
+          Uptime <strong id="uptime">Unavailable</strong>
+        </span>
+        <span class="meta-chip">
+          <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+          Updated <strong id="last-update">Never</strong>
+        </span>
       </div>
     </div>
     <button id="logout" class="ghost" type="button">Sign out</button>
   </header>
 
   <div class="primary-grid">
-    <section id="network-panel" class="panel network-panel status-border status-unknown">
+    <section id="network-panel" class="panel status-border status-unknown">
       <div class="panel-head">
-        <div>
-          <div class="eyebrow">Connectivity</div>
-          <h2>Network</h2>
+        <div class="panel-title">
+          <span class="panel-icon" data-icon="network" aria-hidden="true"></span>
+          <div>
+            <div class="eyebrow">Connectivity</div>
+            <h2>Internet links</h2>
+          </div>
         </div>
         <span id="network-warning" class="panel-note hidden">No connection</span>
       </div>
       <div class="network-list">
         <div class="network-row">
-          <strong>Starlink Mini</strong>
+          <div class="network-label">
+            <span class="row-icon" data-icon="satellite" aria-hidden="true"></span>
+            <div>
+              <strong>Starlink Mini</strong>
+              <span class="network-hint">Wireless uplink</span>
+            </div>
+          </div>
           <span class="network-indicators">
-            <span id="starlink-role" class="network-role">UNKNOWN</span>
+            <span id="starlink-role" class="network-role">Unknown</span>
             <span id="starlink" class="status neutral"><i></i>Unknown</span>
           </span>
         </div>
         <div class="network-row">
-          <strong>Dialog Ethernet</strong>
+          <div class="network-label">
+            <span class="row-icon" data-icon="ethernet" aria-hidden="true"></span>
+            <div>
+              <strong>Dialog Ethernet</strong>
+              <span class="network-hint">Wired backup</span>
+            </div>
+          </div>
           <span class="network-indicators">
-            <span id="dialog-role" class="network-role">UNKNOWN</span>
+            <span id="dialog-role" class="network-role">Unknown</span>
             <span id="dialog" class="status neutral"><i></i>Unknown</span>
           </span>
         </div>
       </div>
     </section>
 
-    <section id="power-panel" class="panel power-panel status-border status-unknown">
+    <section id="power-panel" class="panel status-border status-unknown">
       <div class="panel-head">
-        <div>
-          <div class="eyebrow">Host power</div>
-          <h2>Power</h2>
+        <div class="panel-title">
+          <span class="panel-icon" data-icon="battery" aria-hidden="true"></span>
+          <div>
+            <div class="eyebrow">Host power</div>
+            <h2>Battery</h2>
+          </div>
         </div>
       </div>
       <div class="power-value">
@@ -90,24 +114,36 @@
       <div id="battery-status" class="detail">Battery telemetry unavailable</div>
     </section>
 
-    <section id="resources-panel" class="panel resources-panel status-border status-unknown">
+    <section id="resources-panel" class="panel status-border status-unknown">
       <div class="panel-head">
-        <div>
-          <div class="eyebrow">Utilization</div>
-          <h2>Resources</h2>
+        <div class="panel-title">
+          <span class="panel-icon" data-icon="gauge" aria-hidden="true"></span>
+          <div>
+            <div class="eyebrow">Utilization</div>
+            <h2>Resources</h2>
+          </div>
         </div>
       </div>
       <div class="metrics">
         <div class="metric">
-          <div class="metric-head"><span>CPU</span><strong id="cpu">—</strong></div>
+          <div class="metric-head">
+            <span class="metric-label"><span class="row-icon" data-icon="cpu" aria-hidden="true"></span>CPU</span>
+            <strong id="cpu">—</strong>
+          </div>
           <div id="cpu-bar" class="bar neutral"><i></i></div>
         </div>
         <div class="metric">
-          <div class="metric-head"><span>RAM</span><strong id="ram">—</strong></div>
+          <div class="metric-head">
+            <span class="metric-label"><span class="row-icon" data-icon="memory" aria-hidden="true"></span>RAM</span>
+            <strong id="ram">—</strong>
+          </div>
           <div id="ram-bar" class="bar neutral"><i></i></div>
         </div>
         <div class="metric">
-          <div class="metric-head"><span>DISK</span><strong id="disk">—</strong></div>
+          <div class="metric-head">
+            <span class="metric-label"><span class="row-icon" data-icon="disk" aria-hidden="true"></span>DISK</span>
+            <strong id="disk">—</strong>
+          </div>
           <div id="disk-bar" class="bar neutral"><i></i></div>
         </div>
       </div>
@@ -116,13 +152,16 @@
 
   <section id="services-panel" class="panel services-panel status-border status-unknown">
     <div class="panel-head">
-      <div>
-        <div class="eyebrow">Container health</div>
-        <h2>Services</h2>
+      <div class="panel-title">
+        <span class="panel-icon" data-icon="containers" aria-hidden="true"></span>
+        <div>
+          <div class="eyebrow">Workloads</div>
+          <h2>Services</h2>
+        </div>
       </div>
-      <strong id="service-count" class="neutral">0/5 Unknown</strong>
+      <strong id="service-count" class="neutral">0/6 Unknown</strong>
     </div>
-    <div id="services" class="service-list"></div>
+    <div id="services" class="service-grid"></div>
   </section>
 </main>
 <script src="/dashboard.js"></script>
