@@ -113,6 +113,33 @@ def require_oracle_sync_prerequisites():
         )
 
 
+def oracle_health_output_ok(returncode, stdout):
+    """
+    Accept imfs-db-restore health success.
+
+    Contract (installed helper): print status, then exit non-zero unless healthy,
+    then emit HEALTH_OK. Bare `healthy` alone remains valid for older helpers.
+    Markers are whole lines only (so `unhealthy` is not treated as `healthy`).
+    Any explicit unhealthy marker fails closed, even if HEALTH_OK also appears.
+    """
+    if returncode != 0:
+        return False
+    lines = [
+        line.strip()
+        for line in (stdout or "").splitlines()
+        if line.strip()
+    ]
+    if not lines:
+        return False
+    if "unhealthy" in lines or "health=unhealthy" in lines:
+        return False
+    return (
+        "HEALTH_OK" in lines
+        or "healthy" in lines
+        or "health=healthy" in lines
+    )
+
+
 def current_boot_id():
     try:
         value = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
@@ -272,7 +299,7 @@ def run_oracle_prepare_commands():
             "sudo -n /usr/local/sbin/imfs-db-restore health", timeout=60
         )
         append_oracle_log(health.stdout or "")
-        if health.returncode != 0 or (health.stdout or "").strip() != "healthy":
+        if not oracle_health_output_ok(health.returncode, health.stdout):
             raise RuntimeError("Oracle health check failed")
 
         append_oracle_log("Exporting Dell integration databases...")

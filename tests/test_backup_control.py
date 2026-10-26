@@ -264,6 +264,27 @@ class BackupControlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             backup_control.safe_backup_folder("../../etc")
 
+    def test_oracle_health_output_ok_markers_and_failures(self):
+        ok = backup_control.oracle_health_output_ok
+        multiline = (
+            "healthy\n"
+            "health=healthy\n"
+            "container=imfs-pg-integration\n"
+            "HEALTH_OK\n"
+        )
+        self.assertTrue(ok(0, multiline))
+        self.assertTrue(ok(0, "healthy\n"))
+        self.assertTrue(ok(0, "health=healthy\n"))
+        self.assertFalse(ok(1, multiline))
+        self.assertFalse(ok(0, ""))
+        self.assertFalse(ok(0, "unhealthy\n"))
+        self.assertFalse(ok(0, "health=unhealthy\n"))
+        # Success markers must not override an explicit unhealthy result.
+        self.assertFalse(ok(0, "HEALTH_OK\nhealth=unhealthy\n"))
+        self.assertFalse(ok(0, "healthy\nunhealthy\n"))
+        # Whole-line match only: do not treat "unhealthy" as containing "healthy".
+        self.assertFalse(ok(0, "unhealthy\n"))
+
     def test_oracle_prepare_reaches_awaiting_confirmation_with_mocked_commands(self):
         hashes = {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64}
         with tempfile.TemporaryDirectory() as directory:
