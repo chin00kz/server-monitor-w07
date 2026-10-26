@@ -287,7 +287,7 @@ class BackupControlTests(unittest.TestCase):
             self.assertIn("oracle_prepare start", log.read_text())
             self.assertIn("REPLACE-ORACLE-IMFS", result["message"])
 
-    def test_oracle_prepare_disabled_live_fails_without_subprocess(self):
+    def test_oracle_prepare_disable_flag_fails_without_subprocess(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             status = root / "oracle-sync-status.json"
@@ -297,13 +297,40 @@ class BackupControlTests(unittest.TestCase):
                 patch.object(backup_control, "ORACLE_LOG_FILE", log),
                 patch.object(backup_control, "CONTROL_ROOT", root),
                 patch.object(backup_control, "current_boot_id", return_value="boot-1"),
-                patch.dict(backup_control.os.environ, {"ORACLE_SYNC_LIVE": "0"}, clear=False),
+                patch.dict(
+                    backup_control.os.environ, {"ORACLE_SYNC_DISABLE": "1"}, clear=False,
+                ),
                 patch.object(backup_control.subprocess, "run") as run,
             ):
                 result = backup_control.run_oracle_prepare({"request_id": "d" * 32})
 
             self.assertEqual(result["status"], "failed")
             self.assertIn("disabled", result["message"].lower())
+            run.assert_not_called()
+
+    def test_oracle_prepare_missing_export_script_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            missing_export = root / "missing-export.sh"
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "ORACLE_EXPORT_SCRIPT", missing_export),
+                patch.object(backup_control, "ORACLE_SSH_KEY", str(root / "key")),
+                patch.object(backup_control, "current_boot_id", return_value="boot-1"),
+                patch.dict(
+                    backup_control.os.environ, {"ORACLE_SYNC_DISABLE": "0"}, clear=False,
+                ),
+                patch.object(backup_control.subprocess, "run") as run,
+            ):
+                (root / "key").write_text("dummy")
+                result = backup_control.run_oracle_prepare({"request_id": "9" * 32})
+
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("missing dell export script", result["message"].lower())
             run.assert_not_called()
 
     def test_oracle_apply_verifies_hashes_and_rejects_second_start(self):

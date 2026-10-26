@@ -70,15 +70,37 @@ Status/log: `data/backup-control/oracle-sync-status.json` and `oracle-sync.log` 
 
 **Live apply behavior (do not hide):** `imfs-apply-dumps` runs `dropdb --if-exists` on `imfs_next_*` before recreate. After a failed or partial cutover, do **not** auto-retry apply. Do not delete staged files, `imfs_prev_*` recovery DBs, or Oracle recovery SQL from the dashboard.
 
-### Live execution (default off)
+### Execution (default on)
 
-`ORACLE_SYNC_LIVE` defaults to `0`. Prepare/apply refuse real SSH/export/apply until the host environment explicitly sets `ORACLE_SYNC_LIVE=1`. Do **not** enable this in production config as part of a code deploy. Mocked tests do not prove live safety.
+Prepare and apply run on the **Dell host** via `server-backup-control.service` (not inside the dashboard container). They use the existing fixed paths:
 
-### Separately approved live enablement checklist
+- `~/imfs-oracle/export-integration.sh`
+- SSH key `~/.ssh/imfs_oracle_deploy` → `chinookz@144.24.152.14`
+- `sudo -n /usr/local/sbin/imfs-db-restore` (`health`, `stage-dumps`, `apply CONFIRM-REPLACE-IMFS`)
 
-1. Re-hash Dell `export-integration.sh` / `deploy.sh` and Oracle `imfs-db-restore` / `imfs-apply-dumps`; compare to the reviewed live-capture SHA256 digests.
-2. Decide: stay on verified live scripts, or install the proposed set as a whole (do not mix).
-3. Explicitly approve enabling live sync (not this code merge alone).
-4. On Dell only, set `ORACLE_SYNC_LIVE=1` for `server-backup-control.service` (Environment=), `daemon-reload`, confirm path unit still active.
-5. Run prepare from the dashboard, inspect staging output, then confirm with `REPLACE-ORACLE-IMFS` only when ready to replace `imfs_central` and `imfs_tenant_apex`.
-6. On apply failure mid-cutover: preserve logs and artifacts; follow Oracle recovery instructions — do not blindly re-run apply.
+**Destructive cutover** only happens after the dashboard phrase `REPLACE-ORACLE-IMFS` queues `oracle_apply`. Prepare alone exports, transfers, and stages; it does not rename live Oracle DBs. Apply replaces `imfs_central` / `imfs_tenant_apex` (recovery backup + `imfs_prev_*`; also `dropdb --if-exists` on `imfs_next_*`).
+
+Emergency kill-switch (optional): set `Environment=ORACLE_SYNC_DISABLE=1` on `server-backup-control.service`, then `daemon-reload`. Default is unset so Sync runs.
+
+### Prerequisites on Dell (before first Sync)
+
+```sh
+test -x "$HOME/imfs-oracle/export-integration.sh" && echo export_ok
+test -f "$HOME/.ssh/imfs_oracle_deploy" && echo key_ok
+ssh -i "$HOME/.ssh/imfs_oracle_deploy" -o BatchMode=yes chinookz@144.24.152.14 \
+  'sudo -n /usr/local/sbin/imfs-db-restore health'
+systemctl is-active server-backup-control.path
+```
+
+Expect `healthy` from Oracle health. Re-install host controller after code updates:
+
+```sh
+sudo install -m 0755 activity/backup_control.py \
+  /home/chinookz/homelab/docker/server-monitor/activity/backup_control.py
+```
+
+Rebuild/restart only `monitor` for API/UI changes. Do not set `ORACLE_SYNC_DISABLE` unless intentionally blocking sync.
+
+### Apply failure
+
+On cutover failure: preserve logs and artifacts; do **not** blindly re-run apply.

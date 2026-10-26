@@ -1613,7 +1613,7 @@ header.topbar {
     </div>
     <div class="backup-actions">
       <button id="oracle-sync-prepare" class="refresh-btn" type="button">Sync IMFS to Oracle</button>
-      <span id="oracle-sync-live" class="sub">Live execution is disabled until separately enabled on the host.</span>
+      <span id="oracle-sync-live" class="sub">Prepare exports and stages dumps. Confirm with REPLACE-ORACLE-IMFS before live databases are replaced.</span>
     </div>
     <div id="oracle-sync-confirm" class="oracle-confirm" hidden>
       <p><strong>Confirm Sync</strong> will replace live Oracle databases <code>imfs_central</code> and <code>imfs_tenant_apex</code>. The existing scripts create a recovery backup and retain previous databases as timestamped <code>imfs_prev_*</code> names during cutover. Live apply also drops any existing <code>imfs_next_*</code> databases before recreate. Do not retry after an uncertain partial cutover.</p>
@@ -3127,8 +3127,8 @@ function renderOracleSync(data){
   $("#oracle-sync-exit").textContent = Number.isInteger(data?.exit_status) ? String(data.exit_status) : "—";
   $("#oracle-sync-log").textContent = typeof data?.log === "string" ? data.log : "";
   $("#oracle-sync-live").textContent = data?.live_enabled
-    ? "Live Oracle sync is enabled on this host."
-    : "Live execution is disabled until separately enabled on the host.";
+    ? "Prepare exports and stages dumps. Confirm with REPLACE-ORACLE-IMFS before live databases are replaced."
+    : "Oracle sync is disabled on this host (ORACLE_SYNC_DISABLE=1).";
   oracleSyncRequestId = data?.request_id || null;
   const busy = state === "preparing" || state === "applying";
   prepare.disabled = oraclePrepareInFlight || busy || state === "awaiting_confirmation";

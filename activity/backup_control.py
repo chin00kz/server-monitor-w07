@@ -83,9 +83,34 @@ def read_request():
         return None
 
 
+def oracle_sync_disabled():
+    """
+    Emergency host kill-switch only. Default is enabled so Sync IMFS runs for real.
+    Set ORACLE_SYNC_DISABLE=1 on server-backup-control.service to block prepare/apply.
+    Destructive replace still requires dashboard phrase REPLACE-ORACLE-IMFS.
+    """
+    return os.environ.get("ORACLE_SYNC_DISABLE", "0") == "1"
+
+
 def oracle_live_enabled():
-    """Live Dell→Oracle commands stay off unless explicitly enabled on the host."""
-    return os.environ.get("ORACLE_SYNC_LIVE", "0") == "1"
+    return not oracle_sync_disabled()
+
+
+def require_oracle_sync_prerequisites():
+    """Fail fast with actionable errors before SSH/export work begins."""
+    if oracle_sync_disabled():
+        raise RuntimeError(
+            "Oracle sync is disabled on this host (ORACLE_SYNC_DISABLE=1)"
+        )
+    if not ORACLE_EXPORT_SCRIPT.is_file() or ORACLE_EXPORT_SCRIPT.is_symlink():
+        raise RuntimeError(
+            f"Missing Dell export script: {ORACLE_EXPORT_SCRIPT}"
+        )
+    key = Path(ORACLE_SSH_KEY)
+    if not key.is_file() or key.is_symlink():
+        raise RuntimeError(
+            f"Missing Oracle deploy SSH key: {ORACLE_SSH_KEY}"
+        )
 
 
 def current_boot_id():
@@ -231,15 +256,12 @@ def run_oracle_prepare_commands():
     Non-destructive Dell→Oracle preparation (live deploy.sh lines before confirm).
     Does not replace live Oracle databases.
     """
-    if not oracle_live_enabled():
-        raise RuntimeError(
-            "Live Oracle sync is disabled (set ORACLE_SYNC_LIVE=1 only after approved enablement)"
-        )
+    require_oracle_sync_prerequisites()
 
+    if fcntl is None:
+        raise RuntimeError("POSIX locking is required for Oracle prepare")
     ORACLE_DEPLOY_LOCK.parent.mkdir(parents=True, exist_ok=True)
     with ORACLE_DEPLOY_LOCK.open("w") as deploy_lock:
-        if fcntl is None:
-            raise RuntimeError("POSIX locking is required for Oracle prepare")
         try:
             fcntl.flock(deploy_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
@@ -335,15 +357,12 @@ def run_oracle_prepare_commands():
 
 def run_oracle_apply_commands():
     """Destructive apply once. Never auto-retry after failure."""
-    if not oracle_live_enabled():
-        raise RuntimeError(
-            "Live Oracle sync is disabled (set ORACLE_SYNC_LIVE=1 only after approved enablement)"
-        )
+    require_oracle_sync_prerequisites()
+    if fcntl is None:
+        raise RuntimeError("POSIX locking is required for Oracle apply")
 
     ORACLE_DEPLOY_LOCK.parent.mkdir(parents=True, exist_ok=True)
     with ORACLE_DEPLOY_LOCK.open("w") as deploy_lock:
-        if fcntl is None:
-            raise RuntimeError("POSIX locking is required for Oracle apply")
         try:
             fcntl.flock(deploy_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:

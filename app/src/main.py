@@ -237,7 +237,8 @@ class OracleSyncConfirm(BaseModel):
 
 
 def oracle_sync_live_enabled() -> bool:
-    return os.environ.get("ORACLE_SYNC_LIVE", "0") == "1"
+    """True unless emergency ORACLE_SYNC_DISABLE=1 (host kill-switch; default allows sync)."""
+    return os.environ.get("ORACLE_SYNC_DISABLE", "0") != "1"
 
 
 def read_oracle_sync_raw() -> dict | None:
