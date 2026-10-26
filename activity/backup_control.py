@@ -35,6 +35,7 @@ ORACLE_SOURCE_DIR = Path.home() / "imfs-oracle" / "deploy"
 ORACLE_HOST = "chinookz@144.24.152.14"
 ORACLE_SSH_KEY = str(Path.home() / ".ssh" / "imfs_oracle_deploy")
 ORACLE_DBS = ("imfs_central", "imfs_tenant_apex")
+ORACLE_MANIFEST_NAME = "manifest.json"
 ORACLE_LOG_MAX_BYTES = 200_000
 BACKUP_SCRIPT = Path("/home/chinookz/homelab/docker/imfs-db/backup.sh")
 BACKUP_ROOT = Path("/home/chinookz/homelab/docker/imfs-db/backups")
@@ -111,6 +112,28 @@ def require_oracle_sync_prerequisites():
         raise RuntimeError(
             f"Missing Oracle deploy SSH key: {ORACLE_SSH_KEY}"
         )
+
+
+def oracle_transfer_paths():
+    """
+    Artifacts that must reach Oracle incoming before stage-dumps.
+
+    Installed imfs-db-restore stage-dumps copies dumps + manifest.json and
+    verifies each dump_sha256 in the manifest against the staged dump bytes.
+    Transferring dumps alone leaves a stale remote manifest and causes
+    expected≠actual SHA mismatches.
+    """
+    dumps = [ORACLE_SOURCE_DIR / f"{name}.dump" for name in ORACLE_DBS]
+    manifest = ORACLE_SOURCE_DIR / ORACLE_MANIFEST_NAME
+    return [*dumps, manifest]
+
+
+def oracle_stage_output_ok(returncode, stdout, stderr=""):
+    """Accept STAGE_DUMPS_OK (current helper) or STAGE_DUMPS_SUCCESS (older)."""
+    if returncode != 0:
+        return False
+    text = f"{stdout or ''}{stderr or ''}"
+    return "STAGE_DUMPS_OK" in text or "STAGE_DUMPS_SUCCESS" in text
 
 
 def oracle_health_output_ok(returncode, stdout):
@@ -316,17 +339,17 @@ def run_oracle_prepare_commands():
         if export.returncode != 0 or "EXPORT_SUCCESS" not in (export.stdout or ""):
             raise RuntimeError("Dell export failed")
 
-        append_oracle_log("Transferring dumps to Oracle...")
-        dumps = [ORACLE_SOURCE_DIR / f"{name}.dump" for name in ORACLE_DBS]
-        for path in dumps:
+        append_oracle_log("Transferring dumps and manifest to Oracle...")
+        transfer_paths = oracle_transfer_paths()
+        for path in transfer_paths:
             if not path.is_file() or path.is_symlink():
-                raise RuntimeError(f"Missing export dump: {path.name}")
+                raise RuntimeError(f"Missing export artifact: {path.name}")
         transfer = subprocess.run(
             [
                 "/usr/bin/scp",
                 "-i", ORACLE_SSH_KEY,
                 "-o", "BatchMode=yes",
-                *[str(path) for path in dumps],
+                *[str(path) for path in transfer_paths],
                 f"{ORACLE_HOST}:imfs-oracle/incoming/",
             ],
             capture_output=True,
@@ -343,26 +366,28 @@ def run_oracle_prepare_commands():
 
         append_oracle_log("Verifying transfer checksums...")
         local_hashes = {}
-        for name in ORACLE_DBS:
+        for path in transfer_paths:
             local = subprocess.run(
-                ["/usr/bin/sha256sum", str(ORACLE_SOURCE_DIR / f"{name}.dump")],
+                ["/usr/bin/sha256sum", str(path)],
                 capture_output=True,
                 text=True,
                 timeout=120,
                 check=False,
             )
             if local.returncode != 0:
-                raise RuntimeError(f"Local checksum failed for {name}")
-            local_hashes[name] = local.stdout.split()[0]
+                raise RuntimeError(f"Local checksum failed for {path.name}")
+            digest = local.stdout.split()[0]
+            if path.name.endswith(".dump"):
+                local_hashes[path.stem] = digest
             remote = oracle_ssh(
-                f"sha256sum imfs-oracle/incoming/{name}.dump", timeout=120
+                f"sha256sum imfs-oracle/incoming/{path.name}", timeout=120
             )
             append_oracle_log(remote.stdout or "")
             if remote.returncode != 0:
-                raise RuntimeError(f"Remote checksum failed for {name}")
+                raise RuntimeError(f"Remote checksum failed for {path.name}")
             remote_hash = remote.stdout.split()[0]
-            if local_hashes[name] != remote_hash:
-                raise RuntimeError(f"Transfer checksum mismatch: {name}")
+            if digest != remote_hash:
+                raise RuntimeError(f"Transfer checksum mismatch: {path.name}")
 
         append_oracle_log("Staging dumps on Oracle...")
         stage = oracle_ssh(
@@ -371,13 +396,11 @@ def run_oracle_prepare_commands():
         append_oracle_log(stage.stdout or "")
         if stage.stderr:
             append_oracle_log(stage.stderr)
-        if stage.returncode != 0 or "STAGE_DUMPS_SUCCESS" not in (stage.stdout or ""):
+        if not oracle_stage_output_ok(stage.returncode, stage.stdout, stage.stderr):
             raise RuntimeError("Oracle stage-dumps failed")
 
-        staged = parse_sha256sum_output(stage.stdout, ORACLE_DBS)
-        for name in ORACLE_DBS:
-            if staged[name] != local_hashes[name]:
-                raise RuntimeError(f"Staged checksum mismatch: {name}")
+        # Installed stage-dumps logs STAGED paths, not sha256sum lines; re-hash staged files.
+        verify_staged_dump_hashes(local_hashes)
         append_oracle_log("Oracle staging completed; awaiting confirmation.")
         return local_hashes
 

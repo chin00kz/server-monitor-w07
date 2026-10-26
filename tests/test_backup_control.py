@@ -285,6 +285,67 @@ class BackupControlTests(unittest.TestCase):
         # Whole-line match only: do not treat "unhealthy" as containing "healthy".
         self.assertFalse(ok(0, "unhealthy\n"))
 
+    def test_oracle_transfer_includes_manifest_with_dumps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(backup_control, "ORACLE_SOURCE_DIR", root):
+                paths = backup_control.oracle_transfer_paths()
+            names = [path.name for path in paths]
+            self.assertEqual(
+                names,
+                [
+                    "imfs_central.dump",
+                    "imfs_tenant_apex.dump",
+                    "manifest.json",
+                ],
+            )
+
+    def test_oracle_stage_output_ok_and_hash_pair_contract(self):
+        self.assertTrue(
+            backup_control.oracle_stage_output_ok(0, "STAGED ...\nSTAGE_DUMPS_OK\n")
+        )
+        self.assertTrue(
+            backup_control.oracle_stage_output_ok(0, "STAGE_DUMPS_SUCCESS\n")
+        )
+        self.assertFalse(
+            backup_control.oracle_stage_output_ok(1, "STAGE_DUMPS_OK\n")
+        )
+        self.assertFalse(
+            backup_control.oracle_stage_output_ok(0, "STAGED only\n")
+        )
+
+        matching = {
+            "imfs_central": "c346f539b94811a1c049442c29963af03bbc423ff7de45a1bf8aa514a32a39fc",
+            "imfs_tenant_apex": "e2a8404733bcd7cc0def4082410693a2e03e447cf20d45a37b30fa4e17805e21",
+        }
+        stale_expected = {
+            "imfs_central": "9ecf70bbf44b99bf3ae32d8553d17eea4779a21273108bc03c90d72c5f73b115",
+            "imfs_tenant_apex": matching["imfs_tenant_apex"],
+        }
+        staged_stdout = (
+            f"{matching['imfs_central']} "
+            "/var/lib/imfs-deploy/incoming/imfs_central.dump\n"
+            f"{matching['imfs_tenant_apex']} "
+            "/var/lib/imfs-deploy/incoming/imfs_tenant_apex.dump\n"
+        )
+        with patch.object(
+            backup_control,
+            "oracle_ssh",
+            return_value=type("R", (), {
+                "returncode": 0,
+                "stdout": staged_stdout,
+                "stderr": "",
+            })(),
+        ):
+            # Matching dump SHA-256 values are accepted.
+            self.assertEqual(
+                backup_control.verify_staged_dump_hashes(matching), matching,
+            )
+            # Stale expected hash (old manifest) against new dump bytes is rejected.
+            with self.assertRaises(RuntimeError) as error:
+                backup_control.verify_staged_dump_hashes(stale_expected)
+            self.assertIn("checksum mismatch", str(error.exception).lower())
+
     def test_oracle_prepare_reaches_awaiting_confirmation_with_mocked_commands(self):
         hashes = {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64}
         with tempfile.TemporaryDirectory() as directory:
