@@ -1098,7 +1098,7 @@ canvas { opacity: .92; }
 }
 .oracle-confirm .backup-actions { margin-top: 12px; }
 .backup-state-preparing, .backup-state-applying, .backup-state-awaiting_confirmation { color: var(--amber) !important; }
-.backup-state-cancelled { color: var(--mute) !important; }
+.backup-state-cancelled, .backup-state-idle { color: var(--mute) !important; }
 @media (max-width: 600px) {
   .backup-grid { grid-template-columns: minmax(0, 1fr); }
   .backup-actions { align-items: stretch; flex-direction: column; }
@@ -3095,7 +3095,7 @@ $("#backup-now").addEventListener("click", async () => {
   }
 });
 
-const ORACLE_SYNC_STATES = ["preparing", "awaiting_confirmation", "applying", "successful", "failed", "cancelled", "unavailable"];
+const ORACLE_SYNC_STATES = ["idle", "preparing", "awaiting_confirmation", "applying", "successful", "failed", "cancelled", "unavailable"];
 const ORACLE_PREPARE_LABEL = "Sync IMFS to Oracle";
 const ORACLE_CONFIRM_LABEL = "Confirm Sync";
 let oracleSyncRequestId = null;

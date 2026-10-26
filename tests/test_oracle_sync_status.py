@@ -55,8 +55,20 @@ class OracleSyncStatusTests(unittest.TestCase):
         self.assertEqual(result["log"], "line one\n")
         self.assertFalse(result["live_enabled"])
 
-    def test_stale_and_malformed_fail_closed(self):
+    def test_missing_status_file_is_idle_not_unavailable(self):
         missing = Path(tempfile.gettempdir()) / "missing-oracle-sync-status.json"
+        missing_log = Path(tempfile.gettempdir()) / "missing-oracle.log"
+        if missing.exists():
+            missing.unlink()
+
+        result = load_oracle_sync_status(missing, missing_log, NOW, live_enabled=False)
+
+        self.assertEqual(result["status"], "idle")
+        self.assertEqual(result["message"], "No Oracle sync has been run yet.")
+        self.assertEqual(result["log"], "")
+        self.assertFalse(result["live_enabled"])
+
+    def test_stale_and_malformed_fail_closed(self):
         status, log = self.write(["not", "object"])
         stale, stale_log = self.write({
             "status": "successful",
@@ -64,11 +76,7 @@ class OracleSyncStatusTests(unittest.TestCase):
             "message": "old",
         })
 
-        for path, log_path in (
-            (missing, Path(tempfile.gettempdir()) / "missing-oracle.log"),
-            (status, log),
-            (stale, stale_log),
-        ):
+        for path, log_path in ((status, log), (stale, stale_log)):
             with self.subTest(path=path):
                 self.assertEqual(
                     load_oracle_sync_status(path, log_path, NOW)["status"],

@@ -4,6 +4,7 @@ import re
 
 
 ORACLE_SYNC_STATES = {
+    "idle",
     "preparing",
     "awaiting_confirmation",
     "applying",
@@ -18,11 +19,11 @@ DB_NAMES = ("imfs_central", "imfs_tenant_apex")
 LOG_RETURN_CHARS = 64_000
 
 
-def unavailable_oracle_sync():
+def _base_oracle_sync(status, message, *, live_enabled=False):
     return {
-        "status": "unavailable",
+        "status": status,
         "timestamp": None,
-        "message": "Oracle sync status is unavailable",
+        "message": message,
         "request_id": None,
         "started_at": None,
         "finished_at": None,
@@ -30,8 +31,25 @@ def unavailable_oracle_sync():
         "exit_status": None,
         "dump_hashes": {},
         "log": "",
-        "live_enabled": False,
+        "live_enabled": bool(live_enabled),
     }
+
+
+def unavailable_oracle_sync(*, live_enabled=False):
+    return _base_oracle_sync(
+        "unavailable",
+        "Oracle sync status is unavailable",
+        live_enabled=live_enabled,
+    )
+
+
+def idle_oracle_sync(*, live_enabled=False):
+    """Valid initial state when no sync job has written status yet."""
+    return _base_oracle_sync(
+        "idle",
+        "No Oracle sync has been run yet.",
+        live_enabled=live_enabled,
+    )
 
 
 def _safe_int(value):
@@ -49,8 +67,12 @@ def load_oracle_sync_log(path, limit=LOG_RETURN_CHARS):
 
 
 def load_oracle_sync_status(status_path, log_path, now_ts, *, live_enabled=False):
-    result = unavailable_oracle_sync()
-    result["live_enabled"] = bool(live_enabled)
+    # Missing files mean "never run", not a broken controller. Do not require the
+    # host oneshot to pre-create idle status before the first prepare.
+    if not status_path.is_file():
+        return idle_oracle_sync(live_enabled=live_enabled)
+
+    result = unavailable_oracle_sync(live_enabled=live_enabled)
     try:
         source = json.loads(status_path.read_text(encoding="utf-8"))
         if not isinstance(source, dict):
