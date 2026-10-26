@@ -144,6 +144,18 @@ class BackupApiTests(unittest.TestCase):
             routes["/api/backups/archive/{request_id}"].dependant.dependencies[0].call,
             main.require_login,
         )
+        self.assertIs(
+            routes["/api/backups/oracle-sync"].dependant.dependencies[0].call,
+            main.require_login,
+        )
+        self.assertIs(
+            routes["/api/backups/oracle-sync/prepare"].dependant.dependencies[0].call,
+            main.require_management,
+        )
+        self.assertIs(
+            routes["/api/backups/oracle-sync/confirm"].dependant.dependencies[0].call,
+            main.require_management,
+        )
 
     def test_manual_endpoint_writes_only_fixed_backup_request(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -229,6 +241,132 @@ class BackupApiTests(unittest.TestCase):
             self.assertEqual(Path(response.path), archive)
             self.assertEqual(response.filename, "2026-10-13_224152.zip")
             self.assertIsNotNone(response.background)
+
+    def test_oracle_prepare_queues_fixed_action_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            request_path = root / "request.json"
+            backup_status = root / "status.json"
+            oracle_status = root / "oracle-sync-status.json"
+            oracle_log = root / "oracle-sync.log"
+            backup_status.write_text(json.dumps({
+                "status": "successful",
+                "timestamp": 2_000_000_000,
+                "message": "ok",
+                "last_local": {"status": "successful", "timestamp": 1_999_999_900},
+                "last_cloud": {"status": "successful", "timestamp": 1_999_999_900},
+                "storage": {"status": "ok", "total": 10, "used": 4, "free": 6},
+                "backups": [],
+            }))
+            with (
+                patch.object(main, "BACKUP_CONTROL_REQUEST", request_path),
+                patch.object(main, "BACKUP_CONTROL_STATUS", backup_status),
+                patch.object(main, "ORACLE_SYNC_STATUS", oracle_status),
+                patch.object(main, "ORACLE_SYNC_LOG", oracle_log),
+                patch.object(main.time, "time", return_value=2_000_000_000),
+                patch.object(main.secrets, "token_hex", return_value="b" * 32),
+            ):
+                result = main.oracle_sync_prepare()
+
+            request = json.loads(request_path.read_text())
+            self.assertEqual(request, {
+                "request_id": "b" * 32,
+                "action": "oracle_prepare",
+                "created_at": 2_000_000_000,
+            })
+            self.assertNotIn("command", request)
+            self.assertEqual(result["status"], "preparing")
+            self.assertEqual(result["request_id"], "b" * 32)
+
+    def test_oracle_confirm_rejects_bad_phrase_and_requires_awaiting(self):
+        body = types.SimpleNamespace(
+            confirmation="WRONG",
+            request_id="c" * 32,
+        )
+        with self.assertRaises(main.HTTPException) as error:
+            main.oracle_sync_confirm(body)
+        self.assertEqual(error.exception.status_code, 400)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            request_path = root / "request.json"
+            backup_status = root / "status.json"
+            oracle_status = root / "oracle-sync-status.json"
+            oracle_log = root / "oracle-sync.log"
+            backup_status.write_text(json.dumps({
+                "status": "successful",
+                "timestamp": 2_000_000_000,
+                "message": "ok",
+            }))
+            oracle_status.write_text(json.dumps({
+                "status": "awaiting_confirmation",
+                "timestamp": 2_000_000_000,
+                "message": "ready",
+                "request_id": "c" * 32,
+                "boot_id": "boot-1",
+                "dump_hashes": {
+                    "imfs_central": "a" * 64,
+                    "imfs_tenant_apex": "b" * 64,
+                },
+                "apply_consumed": False,
+                "apply_started": False,
+            }))
+            good = types.SimpleNamespace(
+                confirmation="REPLACE-ORACLE-IMFS",
+                request_id="c" * 32,
+            )
+            with (
+                patch.object(main, "BACKUP_CONTROL_REQUEST", request_path),
+                patch.object(main, "BACKUP_CONTROL_STATUS", backup_status),
+                patch.object(main, "ORACLE_SYNC_STATUS", oracle_status),
+                patch.object(main, "ORACLE_SYNC_LOG", oracle_log),
+                patch.object(main.time, "time", return_value=2_000_000_000),
+            ):
+                result = main.oracle_sync_confirm(good)
+                replay = None
+                try:
+                    main.oracle_sync_confirm(good)
+                except main.HTTPException as exc:
+                    replay = exc
+
+            request = json.loads(request_path.read_text())
+            persisted = json.loads(oracle_status.read_text())
+            self.assertEqual(request["action"], "oracle_apply")
+            self.assertEqual(request["request_id"], "c" * 32)
+            self.assertNotIn("confirmation", request)
+            self.assertNotIn("REPLACE-ORACLE-IMFS", oracle_status.read_text())
+            self.assertEqual(result["status"], "applying")
+            self.assertTrue(persisted["apply_consumed"])
+            self.assertFalse(persisted["apply_started"])
+            self.assertIsNotNone(replay)
+            self.assertEqual(replay.status_code, 409)
+
+    def test_backup_run_rejects_when_oracle_prepare_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            request_path = root / "request.json"
+            backup_status = root / "status.json"
+            oracle_status = root / "oracle-sync-status.json"
+            backup_status.write_text(json.dumps({
+                "status": "successful",
+                "timestamp": 2_000_000_000,
+                "message": "ok",
+            }))
+            oracle_status.write_text(json.dumps({
+                "status": "preparing",
+                "timestamp": 2_000_000_000,
+                "message": "busy",
+            }))
+            with (
+                patch.object(main, "BACKUP_CONTROL_REQUEST", request_path),
+                patch.object(main, "BACKUP_CONTROL_STATUS", backup_status),
+                patch.object(main, "ORACLE_SYNC_STATUS", oracle_status),
+                patch.object(main.time, "time", return_value=2_000_000_000),
+                self.assertRaises(main.HTTPException) as error,
+            ):
+                main.run_backup()
+            self.assertEqual(error.exception.status_code, 409)
+            self.assertFalse(request_path.exists())
 
 
 if __name__ == "__main__":

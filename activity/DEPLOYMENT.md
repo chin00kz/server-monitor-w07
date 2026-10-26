@@ -54,3 +54,31 @@ sudo systemctl enable --now server-backup-control.path server-backup-status.time
 ```
 
 The controller runs as `chinookz`, so it reuses that account's existing rclone configuration without exposing it to the dashboard container. Status refreshes run once per minute. Manual requests are serialized by the controller lock, reject an already-running `backup.sh` process, and invoke the fixed script through `flock` at `backups/.server-monitor-backup.lock`. Local backup downloads are restricted to timestamp-named direct children of the backup directory. ZIP files are generated under `data/backup-control/archives`, removed after transfer, and expired after one hour if a transfer is abandoned. The existing cron schedule, backup script, PostgreSQL containers, rclone configuration, and Drive contents are not changed by this integration.
+
+## Sync IMFS to Oracle (dashboard)
+
+Uses the **same** backup-control PathChanged oneshot (`server-backup-control.path` / `.service`). No second systemd stack.
+
+| Action | Effect |
+|---|---|
+| `oracle_prepare` | Health → Dell `export-integration.sh` → SCP dumps → checksums → `imfs-db-restore stage-dumps`. Stops at `awaiting_confirmation`. Does **not** replace live Oracle DBs. |
+| `oracle_apply` | Re-checks Dell `boot_id`, re-verifies staged dump SHA256 on Oracle, then runs fixed `imfs-db-restore apply CONFIRM-REPLACE-IMFS` once. |
+
+Dashboard phrase: `REPLACE-ORACLE-IMFS` (API only; never logged). Oracle argv remains `CONFIRM-REPLACE-IMFS` (same as live `deploy.sh` after the prompt).
+
+Status/log: `data/backup-control/oracle-sync-status.json` and `oracle-sync.log` (separate from local/cloud backup status). Controller lock is held only while prepare/apply/backup/archive runs — **not** while waiting for human confirmation. Local Backup Now remains available during `awaiting_confirmation`, but prepare/apply conflict with an in-flight backup and with each other.
+
+**Live apply behavior (do not hide):** `imfs-apply-dumps` runs `dropdb --if-exists` on `imfs_next_*` before recreate. After a failed or partial cutover, do **not** auto-retry apply. Do not delete staged files, `imfs_prev_*` recovery DBs, or Oracle recovery SQL from the dashboard.
+
+### Live execution (default off)
+
+`ORACLE_SYNC_LIVE` defaults to `0`. Prepare/apply refuse real SSH/export/apply until the host environment explicitly sets `ORACLE_SYNC_LIVE=1`. Do **not** enable this in production config as part of a code deploy. Mocked tests do not prove live safety.
+
+### Separately approved live enablement checklist
+
+1. Re-hash Dell `export-integration.sh` / `deploy.sh` and Oracle `imfs-db-restore` / `imfs-apply-dumps`; compare to the reviewed live-capture SHA256 digests.
+2. Decide: stay on verified live scripts, or install the proposed set as a whole (do not mix).
+3. Explicitly approve enabling live sync (not this code merge alone).
+4. On Dell only, set `ORACLE_SYNC_LIVE=1` for `server-backup-control.service` (Environment=), `daemon-reload`, confirm path unit still active.
+5. Run prepare from the dashboard, inspect staging output, then confirm with `REPLACE-ORACLE-IMFS` only when ready to replace `imfs_central` and `imfs_tenant_apex`.
+6. On apply failure mid-cutover: preserve logs and artifacts; follow Oracle recovery instructions — do not blindly re-run apply.

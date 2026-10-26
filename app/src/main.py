@@ -22,6 +22,7 @@ from activity_snapshot import load_activity_snapshot
 from backup_status import load_backup_status
 from docker_uptime import calculate_uptime_seconds
 from network_health import ALL_INTERFACES, network_status_ok
+from oracle_sync_status import load_oracle_sync_status
 from service_expectations import container_roles
 from snapshot_sanitize import sanitize_postgres_database
 import store
@@ -217,6 +218,9 @@ BACKUP_CONTROL_REQUEST = BACKUP_CONTROL_ROOT / "request.json"
 BACKUP_CONTROL_STATUS = BACKUP_CONTROL_ROOT / "status.json"
 BACKUP_ARCHIVE_ROOT = BACKUP_CONTROL_ROOT / "archives"
 BACKUP_ARCHIVE_STATUS_ROOT = BACKUP_CONTROL_ROOT / "archive-status"
+ORACLE_SYNC_STATUS = BACKUP_CONTROL_ROOT / "oracle-sync-status.json"
+ORACLE_SYNC_LOG = BACKUP_CONTROL_ROOT / "oracle-sync.log"
+ORACLE_CONFIRM_PHRASE = "REPLACE-ORACLE-IMFS"
 BACKUP_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
 BACKUP_REQUEST_RE = re.compile(r"^[a-f0-9]{32}$")
 backup_control_lock = threading.Lock()
@@ -225,6 +229,38 @@ backup_control_lock = threading.Lock()
 class DockerControlRequest(BaseModel):
     container: str
     action: str
+
+
+class OracleSyncConfirm(BaseModel):
+    confirmation: str
+    request_id: str
+
+
+def oracle_sync_live_enabled() -> bool:
+    return os.environ.get("ORACLE_SYNC_LIVE", "0") == "1"
+
+
+def read_oracle_sync_raw() -> dict | None:
+    try:
+        value = json.loads(ORACLE_SYNC_STATUS.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def oracle_operation_busy(raw: dict | None = None) -> bool:
+    """True while prepare/apply holds the host controller; not while awaiting humans."""
+    status = (raw or read_oracle_sync_raw() or {}).get("status")
+    return status in {"preparing", "applying"}
+
+
+def current_oracle_sync(now: int | None = None) -> dict:
+    return load_oracle_sync_status(
+        ORACLE_SYNC_STATUS,
+        ORACLE_SYNC_LOG,
+        int(time.time() if now is None else now),
+        live_enabled=oracle_sync_live_enabled(),
+    )
 
 
 def configured_docker_containers():
@@ -318,6 +354,8 @@ def run_backup():
     with backup_control_lock:
         if BACKUP_CONTROL_REQUEST.exists():
             raise HTTPException(409, "a backup is already queued")
+        if oracle_operation_busy():
+            raise HTTPException(409, "an Oracle sync operation is already running")
         current = load_backup_status(BACKUP_CONTROL_STATUS, now)
         if current["status"] == "running":
             raise HTTPException(409, "a backup is already running")
@@ -354,6 +392,8 @@ def request_backup_archive(backup_name: str):
     with backup_control_lock:
         if BACKUP_CONTROL_REQUEST.exists():
             raise HTTPException(409, "a backup operation is already queued")
+        if oracle_operation_busy():
+            raise HTTPException(409, "an Oracle sync operation is already running")
         current = load_backup_status(BACKUP_CONTROL_STATUS, now)
         available = {item["name"] for item in current.get("backups", [])}
         if backup_name not in available:
@@ -375,6 +415,119 @@ def request_backup_archive(backup_name: str):
         })
         write_control_json(BACKUP_CONTROL_REQUEST, request)
     return {"request_id": request_id, "status": "queued"}
+
+
+@app.get("/api/backups/oracle-sync", dependencies=[Depends(require_login)])
+def oracle_sync_status():
+    """Return persisted Oracle sync status and bounded log text."""
+    return current_oracle_sync()
+
+
+@app.post(
+    "/api/backups/oracle-sync/prepare",
+    dependencies=[Depends(require_management)],
+)
+def oracle_sync_prepare():
+    """Queue fixed non-destructive Dell→Oracle preparation (no live DB replace)."""
+    now = int(time.time())
+    with backup_control_lock:
+        if BACKUP_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a backup or sync operation is already queued")
+        backup = load_backup_status(BACKUP_CONTROL_STATUS, now)
+        if backup["status"] == "running":
+            raise HTTPException(409, "a backup is already running")
+        raw = read_oracle_sync_raw() or {}
+        if oracle_operation_busy(raw):
+            raise HTTPException(409, "an Oracle sync operation is already running")
+        if raw.get("status") == "awaiting_confirmation" and not raw.get("apply_consumed"):
+            raise HTTPException(
+                409,
+                "a preparation is already awaiting confirmation",
+            )
+
+        request_id = secrets.token_hex(16)
+        request = {
+            "request_id": request_id,
+            "action": "oracle_prepare",
+            "created_at": now,
+        }
+        preparing = {
+            "status": "preparing",
+            "timestamp": now,
+            "message": "Oracle sync prepare queued",
+            "request_id": request_id,
+            "boot_id": None,
+            "dump_hashes": {},
+            "started_at": now,
+            "finished_at": None,
+            "duration_seconds": None,
+            "exit_status": None,
+            "apply_consumed": False,
+        }
+        write_control_json(ORACLE_SYNC_STATUS, preparing)
+        write_control_json(BACKUP_CONTROL_REQUEST, request)
+    return current_oracle_sync(now)
+
+
+@app.post(
+    "/api/backups/oracle-sync/confirm",
+    dependencies=[Depends(require_management)],
+)
+def oracle_sync_confirm(body: OracleSyncConfirm):
+    """
+    Queue fixed destructive apply after exact phrase confirmation.
+    The confirmation phrase is never written to status or request files.
+    """
+    confirmation = body.confirmation if isinstance(body.confirmation, str) else ""
+    request_id = body.request_id if isinstance(body.request_id, str) else ""
+    if not secrets.compare_digest(confirmation, ORACLE_CONFIRM_PHRASE):
+        raise HTTPException(400, "confirmation phrase is incorrect")
+    if not BACKUP_REQUEST_RE.fullmatch(request_id):
+        raise HTTPException(400, "invalid preparation request")
+
+    now = int(time.time())
+    with backup_control_lock:
+        if BACKUP_CONTROL_REQUEST.exists():
+            raise HTTPException(409, "a backup or sync operation is already queued")
+        backup = load_backup_status(BACKUP_CONTROL_STATUS, now)
+        if backup["status"] == "running":
+            raise HTTPException(409, "a backup is already running")
+
+        raw = read_oracle_sync_raw() or {}
+        if (
+            raw.get("status") != "awaiting_confirmation"
+            or raw.get("request_id") != request_id
+            or raw.get("apply_consumed")
+        ):
+            raise HTTPException(
+                409,
+                "no valid preparation is awaiting confirmation for this request",
+            )
+
+        request = {
+            "request_id": request_id,
+            "action": "oracle_apply",
+            "created_at": now,
+        }
+        applying = {
+            "status": "applying",
+            "timestamp": now,
+            "message": "Oracle sync apply queued",
+            "request_id": request_id,
+            "boot_id": raw.get("boot_id"),
+            "dump_hashes": raw.get("dump_hashes") or {},
+            "started_at": now,
+            "finished_at": None,
+            "duration_seconds": None,
+            "exit_status": None,
+            # Consume confirmation before the host runs apply so refresh/replay
+            # cannot re-queue; apply_started stays false until the controller begins.
+            "apply_consumed": True,
+            "apply_started": False,
+        }
+        write_control_json(ORACLE_SYNC_STATUS, applying)
+        write_control_json(BACKUP_CONTROL_REQUEST, request)
+    return current_oracle_sync(now)
 
 
 def remove_download(path: Path, status_path: Path):

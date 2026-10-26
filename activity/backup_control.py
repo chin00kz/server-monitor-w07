@@ -27,6 +27,15 @@ STATUS_FILE = CONTROL_ROOT / "status.json"
 LOCK_FILE = CONTROL_ROOT / ".controller.lock"
 ARCHIVE_ROOT = CONTROL_ROOT / "archives"
 ARCHIVE_STATUS_ROOT = CONTROL_ROOT / "archive-status"
+ORACLE_STATUS_FILE = CONTROL_ROOT / "oracle-sync-status.json"
+ORACLE_LOG_FILE = CONTROL_ROOT / "oracle-sync.log"
+ORACLE_DEPLOY_LOCK = Path.home() / "imfs-oracle" / ".deploy.lock"
+ORACLE_EXPORT_SCRIPT = Path.home() / "imfs-oracle" / "export-integration.sh"
+ORACLE_SOURCE_DIR = Path.home() / "imfs-oracle" / "deploy"
+ORACLE_HOST = "chinookz@144.24.152.14"
+ORACLE_SSH_KEY = str(Path.home() / ".ssh" / "imfs_oracle_deploy")
+ORACLE_DBS = ("imfs_central", "imfs_tenant_apex")
+ORACLE_LOG_MAX_BYTES = 200_000
 BACKUP_SCRIPT = Path("/home/chinookz/homelab/docker/imfs-db/backup.sh")
 BACKUP_ROOT = Path("/home/chinookz/homelab/docker/imfs-db/backups")
 BACKUP_LOCK = BACKUP_ROOT / ".server-monitor-backup.lock"
@@ -35,6 +44,9 @@ RCLONE_CONFIG = "/home/chinookz/.config/rclone/rclone.conf"
 RCLONE_REMOTE = "gdrive:IMFS-Backups/"
 REQUEST_RE = re.compile(r"^[a-f0-9]{32}$")
 BACKUP_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
+HASH_RE = re.compile(r"^[a-f0-9]{64}$")
+ORACLE_ACTIONS = {"oracle_prepare", "oracle_apply"}
+ALLOWED_ACTIONS = {"backup", "archive"} | ORACLE_ACTIONS
 
 
 def atomic_write(path, payload):
@@ -60,7 +72,7 @@ def read_request():
         if not isinstance(request_id, str) or not REQUEST_RE.fullmatch(request_id):
             raise ValueError("invalid request ID")
         action = value.get("action")
-        if action not in {"backup", "archive"}:
+        if action not in ALLOWED_ACTIONS:
             raise ValueError("unsupported backup action")
         if action == "archive":
             name = value.get("backup_name")
@@ -69,6 +81,451 @@ def read_request():
         return value
     except (OSError, ValueError, TypeError, KeyError):
         return None
+
+
+def oracle_live_enabled():
+    """Live Dell→Oracle commands stay off unless explicitly enabled on the host."""
+    return os.environ.get("ORACLE_SYNC_LIVE", "0") == "1"
+
+
+def current_boot_id():
+    try:
+        value = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    except OSError:
+        pass
+    return "unknown"
+
+
+def append_oracle_log(message):
+    CONTROL_ROOT.mkdir(parents=True, exist_ok=True)
+    line = message if message.endswith("\n") else f"{message}\n"
+    try:
+        with ORACLE_LOG_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+        size = ORACLE_LOG_FILE.stat().st_size
+        if size > ORACLE_LOG_MAX_BYTES:
+            data = ORACLE_LOG_FILE.read_bytes()[-ORACLE_LOG_MAX_BYTES:]
+            ORACLE_LOG_FILE.write_bytes(data)
+    except OSError:
+        pass
+
+
+def read_oracle_status():
+    try:
+        value = json.loads(ORACLE_STATUS_FILE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def write_oracle_status(**fields):
+    current = read_oracle_status() or {}
+    payload = {
+        "status": fields.get("status", current.get("status", "unavailable")),
+        "timestamp": int(time.time()),
+        "message": fields.get("message", current.get("message", "")),
+        "request_id": fields.get("request_id", current.get("request_id")),
+        "boot_id": fields.get("boot_id", current.get("boot_id")),
+        "dump_hashes": fields.get("dump_hashes", current.get("dump_hashes") or {}),
+        "started_at": fields.get("started_at", current.get("started_at")),
+        "finished_at": fields.get("finished_at", current.get("finished_at")),
+        "duration_seconds": fields.get(
+            "duration_seconds", current.get("duration_seconds")
+        ),
+        "exit_status": fields.get("exit_status", current.get("exit_status")),
+        "apply_consumed": fields.get(
+            "apply_consumed", current.get("apply_consumed", False)
+        ),
+        "apply_started": fields.get(
+            "apply_started", current.get("apply_started", False)
+        ),
+    }
+    atomic_write(ORACLE_STATUS_FILE, payload)
+    return payload
+
+
+def invalidate_stale_oracle_preparation():
+    """Drop awaiting confirmation after Dell reboot; do not authorize apply."""
+    status = read_oracle_status()
+    if not status or status.get("status") != "awaiting_confirmation":
+        return False
+    stored = status.get("boot_id")
+    if not isinstance(stored, str) or not stored or stored == current_boot_id():
+        return False
+    append_oracle_log(
+        "Preparation invalidated: Dell boot ID changed; confirmation cleared."
+    )
+    write_oracle_status(
+        status="cancelled",
+        message=(
+            "Preparation invalidated after Dell reboot; "
+            "run Sync prepare again before apply"
+        ),
+        apply_consumed=True,
+        finished_at=int(time.time()),
+        dump_hashes={},
+    )
+    return True
+
+
+def oracle_ssh(remote_command, timeout=120):
+    return subprocess.run(
+        [
+            "/usr/bin/ssh",
+            "-i", ORACLE_SSH_KEY,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=20",
+            ORACLE_HOST,
+            remote_command,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def parse_sha256sum_output(output, expected_names):
+    hashes = {}
+    for line in (output or "").splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+        digest, path = parts[0], parts[-1]
+        name = Path(path).name
+        if name.endswith(".dump"):
+            name = name[:-5]
+        if name in expected_names and HASH_RE.fullmatch(digest):
+            hashes[name] = digest
+    if set(hashes) != set(expected_names):
+        raise ValueError("incomplete checksum set")
+    return hashes
+
+
+def verify_staged_dump_hashes(expected):
+    """Confirm Oracle staged dumps still match the preparation hashes."""
+    result = oracle_ssh(
+        "sudo -n sha256sum "
+        "/var/lib/imfs-deploy/incoming/imfs_central.dump "
+        "/var/lib/imfs-deploy/incoming/imfs_tenant_apex.dump",
+        timeout=60,
+    )
+    append_oracle_log(result.stdout or "")
+    if result.stderr:
+        append_oracle_log(result.stderr)
+    if result.returncode != 0:
+        raise RuntimeError("Could not read staged dump checksums on Oracle")
+    actual = parse_sha256sum_output(result.stdout, ORACLE_DBS)
+    for name in ORACLE_DBS:
+        if actual.get(name) != expected.get(name):
+            raise RuntimeError(
+                f"Staged dump checksum mismatch for {name}; preparation is no longer valid"
+            )
+    return actual
+
+
+def run_oracle_prepare_commands():
+    """
+    Non-destructive Dell→Oracle preparation (live deploy.sh lines before confirm).
+    Does not replace live Oracle databases.
+    """
+    if not oracle_live_enabled():
+        raise RuntimeError(
+            "Live Oracle sync is disabled (set ORACLE_SYNC_LIVE=1 only after approved enablement)"
+        )
+
+    ORACLE_DEPLOY_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with ORACLE_DEPLOY_LOCK.open("w") as deploy_lock:
+        if fcntl is None:
+            raise RuntimeError("POSIX locking is required for Oracle prepare")
+        try:
+            fcntl.flock(deploy_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("Another IMFS deployment lock is held") from error
+
+        append_oracle_log("Checking Oracle health...")
+        health = oracle_ssh(
+            "sudo -n /usr/local/sbin/imfs-db-restore health", timeout=60
+        )
+        append_oracle_log(health.stdout or "")
+        if health.returncode != 0 or (health.stdout or "").strip() != "healthy":
+            raise RuntimeError("Oracle health check failed")
+
+        append_oracle_log("Exporting Dell integration databases...")
+        export = subprocess.run(
+            [str(ORACLE_EXPORT_SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=3600,
+            check=False,
+        )
+        append_oracle_log(export.stdout or "")
+        if export.stderr:
+            append_oracle_log(export.stderr)
+        if export.returncode != 0 or "EXPORT_SUCCESS" not in (export.stdout or ""):
+            raise RuntimeError("Dell export failed")
+
+        append_oracle_log("Transferring dumps to Oracle...")
+        dumps = [ORACLE_SOURCE_DIR / f"{name}.dump" for name in ORACLE_DBS]
+        for path in dumps:
+            if not path.is_file() or path.is_symlink():
+                raise RuntimeError(f"Missing export dump: {path.name}")
+        transfer = subprocess.run(
+            [
+                "/usr/bin/scp",
+                "-i", ORACLE_SSH_KEY,
+                "-o", "BatchMode=yes",
+                *[str(path) for path in dumps],
+                f"{ORACLE_HOST}:imfs-oracle/incoming/",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3600,
+            check=False,
+        )
+        if transfer.stdout:
+            append_oracle_log(transfer.stdout)
+        if transfer.stderr:
+            append_oracle_log(transfer.stderr)
+        if transfer.returncode != 0:
+            raise RuntimeError("SCP transfer to Oracle failed")
+
+        append_oracle_log("Verifying transfer checksums...")
+        local_hashes = {}
+        for name in ORACLE_DBS:
+            local = subprocess.run(
+                ["/usr/bin/sha256sum", str(ORACLE_SOURCE_DIR / f"{name}.dump")],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            if local.returncode != 0:
+                raise RuntimeError(f"Local checksum failed for {name}")
+            local_hashes[name] = local.stdout.split()[0]
+            remote = oracle_ssh(
+                f"sha256sum imfs-oracle/incoming/{name}.dump", timeout=120
+            )
+            append_oracle_log(remote.stdout or "")
+            if remote.returncode != 0:
+                raise RuntimeError(f"Remote checksum failed for {name}")
+            remote_hash = remote.stdout.split()[0]
+            if local_hashes[name] != remote_hash:
+                raise RuntimeError(f"Transfer checksum mismatch: {name}")
+
+        append_oracle_log("Staging dumps on Oracle...")
+        stage = oracle_ssh(
+            "sudo -n /usr/local/sbin/imfs-db-restore stage-dumps", timeout=300
+        )
+        append_oracle_log(stage.stdout or "")
+        if stage.stderr:
+            append_oracle_log(stage.stderr)
+        if stage.returncode != 0 or "STAGE_DUMPS_SUCCESS" not in (stage.stdout or ""):
+            raise RuntimeError("Oracle stage-dumps failed")
+
+        staged = parse_sha256sum_output(stage.stdout, ORACLE_DBS)
+        for name in ORACLE_DBS:
+            if staged[name] != local_hashes[name]:
+                raise RuntimeError(f"Staged checksum mismatch: {name}")
+        append_oracle_log("Oracle staging completed; awaiting confirmation.")
+        return local_hashes
+
+
+def run_oracle_apply_commands():
+    """Destructive apply once. Never auto-retry after failure."""
+    if not oracle_live_enabled():
+        raise RuntimeError(
+            "Live Oracle sync is disabled (set ORACLE_SYNC_LIVE=1 only after approved enablement)"
+        )
+
+    ORACLE_DEPLOY_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with ORACLE_DEPLOY_LOCK.open("w") as deploy_lock:
+        if fcntl is None:
+            raise RuntimeError("POSIX locking is required for Oracle apply")
+        try:
+            fcntl.flock(deploy_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("Another IMFS deployment lock is held") from error
+
+        append_oracle_log("Starting protected Oracle restore (imfs-db-restore apply)...")
+        append_oracle_log(
+            "Note: live apply drops existing imfs_next_* databases before recreate."
+        )
+        result = oracle_ssh(
+            "sudo -n /usr/local/sbin/imfs-db-restore apply CONFIRM-REPLACE-IMFS",
+            timeout=7200,
+        )
+        append_oracle_log(result.stdout or "")
+        if result.stderr:
+            append_oracle_log(result.stderr)
+        if result.returncode != 0 or "DEPLOYMENT_SUCCESS" not in (result.stdout or ""):
+            raise RuntimeError(
+                f"Oracle apply failed with exit code {result.returncode}; "
+                "do not retry blindly after an uncertain cutover"
+            )
+        append_oracle_log("===== DEPLOYMENT COMPLETE =====")
+        return result.returncode
+
+
+def run_oracle_prepare(request):
+    request_id = request["request_id"]
+    started = int(time.time())
+    try:
+        ORACLE_LOG_FILE.write_text("", encoding="utf-8")
+    except OSError:
+        pass
+    append_oracle_log(f"oracle_prepare start request_id={request_id}")
+    write_oracle_status(
+        status="preparing",
+        message="Preparing Dell export and Oracle staging",
+        request_id=request_id,
+        boot_id=current_boot_id(),
+        started_at=started,
+        finished_at=None,
+        duration_seconds=None,
+        exit_status=None,
+        dump_hashes={},
+        apply_consumed=False,
+        apply_started=False,
+    )
+    try:
+        hashes = run_oracle_prepare_commands()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        finished = int(time.time())
+        append_oracle_log(f"oracle_prepare failed: {error}")
+        return write_oracle_status(
+            status="failed",
+            message=str(error)[:300],
+            request_id=request_id,
+            finished_at=finished,
+            duration_seconds=finished - started,
+            exit_status=1,
+            apply_consumed=True,
+            dump_hashes={},
+        )
+
+    finished = int(time.time())
+    return write_oracle_status(
+        status="awaiting_confirmation",
+        message=(
+            "Preparation succeeded. Type REPLACE-ORACLE-IMFS to replace "
+            "live Oracle databases imfs_central and imfs_tenant_apex."
+        ),
+        request_id=request_id,
+        boot_id=current_boot_id(),
+        dump_hashes=hashes,
+        started_at=started,
+        finished_at=finished,
+        duration_seconds=finished - started,
+        exit_status=0,
+        apply_consumed=False,
+        apply_started=False,
+    )
+
+
+def run_oracle_apply(request):
+    request_id = request["request_id"]
+    status = read_oracle_status() or {}
+    # API may already have moved awaiting → applying and set apply_consumed to
+    # prevent confirmation replay before this oneshot runs.
+    queued_by_api = (
+        status.get("status") == "applying"
+        and status.get("apply_consumed") is True
+        and status.get("request_id") == request_id
+        and not status.get("apply_started")
+    )
+    awaiting = (
+        status.get("status") == "awaiting_confirmation"
+        and status.get("request_id") == request_id
+        and not status.get("apply_consumed")
+        and not status.get("apply_started")
+    )
+    if not queued_by_api and not awaiting:
+        append_oracle_log(
+            "oracle_apply rejected: no matching preparation awaiting confirmation"
+        )
+        return write_oracle_status(
+            status="failed",
+            message="No valid preparation is awaiting confirmation for this request",
+            request_id=request_id,
+            apply_consumed=True,
+            apply_started=True,
+            finished_at=int(time.time()),
+            exit_status=1,
+        )
+
+    if status.get("boot_id") != current_boot_id():
+        append_oracle_log("oracle_apply rejected: Dell boot ID no longer matches")
+        return write_oracle_status(
+            status="cancelled",
+            message="Preparation invalidated after Dell reboot",
+            request_id=request_id,
+            apply_consumed=True,
+            apply_started=True,
+            finished_at=int(time.time()),
+            dump_hashes={},
+            exit_status=1,
+        )
+
+    expected = status.get("dump_hashes") or {}
+    if set(expected) != set(ORACLE_DBS) or not all(
+        isinstance(expected.get(name), str) and HASH_RE.fullmatch(expected[name])
+        for name in ORACLE_DBS
+    ):
+        return write_oracle_status(
+            status="failed",
+            message="Preparation hashes are missing; run prepare again",
+            request_id=request_id,
+            apply_consumed=True,
+            apply_started=True,
+            finished_at=int(time.time()),
+            exit_status=1,
+        )
+
+    started = int(status.get("started_at") or time.time())
+    # Mark started before any destructive work so a second oneshot cannot re-enter.
+    write_oracle_status(
+        status="applying",
+        message="Applying staged dumps to Oracle (destructive cutover)",
+        request_id=request_id,
+        started_at=started,
+        finished_at=None,
+        duration_seconds=None,
+        exit_status=None,
+        apply_consumed=True,
+        apply_started=True,
+        dump_hashes=expected,
+    )
+    append_oracle_log(f"oracle_apply start request_id={request_id}")
+
+    try:
+        verify_staged_dump_hashes(expected)
+        exit_status = run_oracle_apply_commands()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        finished = int(time.time())
+        append_oracle_log(f"oracle_apply failed: {error}")
+        return write_oracle_status(
+            status="failed",
+            message=str(error)[:300],
+            request_id=request_id,
+            finished_at=finished,
+            duration_seconds=finished - started,
+            exit_status=1,
+            apply_consumed=True,
+        )
+
+    finished = int(time.time())
+    return write_oracle_status(
+        status="successful",
+        message="Oracle IMFS databases replaced successfully",
+        request_id=request_id,
+        finished_at=finished,
+        duration_seconds=finished - started,
+        exit_status=exit_status,
+        apply_consumed=True,
+    )
 
 
 def local_status():
@@ -383,6 +840,9 @@ def main():
         except BlockingIOError:
             return 0
 
+        # Reboot invalidation runs without holding a human-confirmation wait.
+        invalidate_stale_oracle_preparation()
+
         if not REQUEST_FILE.exists():
             cleanup_archives()
             collect_status()
@@ -394,6 +854,10 @@ def main():
                 collect_status("failed", "Invalid backup request")
             elif request["action"] == "archive":
                 create_archive(request)
+            elif request["action"] == "oracle_prepare":
+                run_oracle_prepare(request)
+            elif request["action"] == "oracle_apply":
+                run_oracle_apply(request)
             else:
                 run_backup(request)
         finally:

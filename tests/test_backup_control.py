@@ -43,6 +43,19 @@ class BackupControlTests(unittest.TestCase):
                 }))
                 self.assertIsNone(backup_control.read_request())
 
+                request.write_text(json.dumps({
+                    "request_id": "a" * 32, "action": "oracle_prepare",
+                }))
+                self.assertEqual(
+                    backup_control.read_request()["action"], "oracle_prepare",
+                )
+                request.write_text(json.dumps({
+                    "request_id": "a" * 32, "action": "oracle_apply",
+                }))
+                self.assertEqual(
+                    backup_control.read_request()["action"], "oracle_apply",
+                )
+
     @patch.object(backup_control.subprocess, "run")
     def test_storage_uses_fixed_rclone_about_command(self, run):
         run.return_value = Mock(stdout=json.dumps({
@@ -250,6 +263,174 @@ class BackupControlTests(unittest.TestCase):
     def test_safe_backup_folder_rejects_traversal(self):
         with self.assertRaises(ValueError):
             backup_control.safe_backup_folder("../../etc")
+
+    def test_oracle_prepare_reaches_awaiting_confirmation_with_mocked_commands(self):
+        hashes = {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "current_boot_id", return_value="boot-1"),
+                patch.object(
+                    backup_control, "run_oracle_prepare_commands", return_value=hashes,
+                ),
+            ):
+                result = backup_control.run_oracle_prepare({"request_id": "c" * 32})
+
+            self.assertEqual(result["status"], "awaiting_confirmation")
+            self.assertEqual(result["dump_hashes"], hashes)
+            self.assertFalse(result["apply_consumed"])
+            self.assertIn("oracle_prepare start", log.read_text())
+            self.assertIn("REPLACE-ORACLE-IMFS", result["message"])
+
+    def test_oracle_prepare_disabled_live_fails_without_subprocess(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "current_boot_id", return_value="boot-1"),
+                patch.dict(backup_control.os.environ, {"ORACLE_SYNC_LIVE": "0"}, clear=False),
+                patch.object(backup_control.subprocess, "run") as run,
+            ):
+                result = backup_control.run_oracle_prepare({"request_id": "d" * 32})
+
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("disabled", result["message"].lower())
+            run.assert_not_called()
+
+    def test_oracle_apply_verifies_hashes_and_rejects_second_start(self):
+        hashes = {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            status.write_text(json.dumps({
+                "status": "applying",
+                "timestamp": 2_000_000_000,
+                "message": "queued",
+                "request_id": "e" * 32,
+                "boot_id": "boot-1",
+                "dump_hashes": hashes,
+                "apply_consumed": True,
+                "apply_started": False,
+                "started_at": 2_000_000_000,
+            }))
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "current_boot_id", return_value="boot-1"),
+                patch.object(backup_control, "verify_staged_dump_hashes", return_value=hashes),
+                patch.object(backup_control, "run_oracle_apply_commands", return_value=0),
+            ):
+                first = backup_control.run_oracle_apply({"request_id": "e" * 32})
+                second = backup_control.run_oracle_apply({"request_id": "e" * 32})
+
+            self.assertEqual(first["status"], "successful")
+            self.assertTrue(first["apply_started"])
+            self.assertEqual(second["status"], "failed")
+
+    def test_oracle_apply_rejects_boot_id_change_and_does_not_call_apply(self):
+        hashes = {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            status.write_text(json.dumps({
+                "status": "awaiting_confirmation",
+                "timestamp": 2_000_000_000,
+                "message": "ready",
+                "request_id": "f" * 32,
+                "boot_id": "boot-old",
+                "dump_hashes": hashes,
+                "apply_consumed": False,
+                "apply_started": False,
+            }))
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "current_boot_id", return_value="boot-new"),
+                patch.object(backup_control, "verify_staged_dump_hashes") as verify,
+                patch.object(backup_control, "run_oracle_apply_commands") as apply_cmd,
+            ):
+                result = backup_control.run_oracle_apply({"request_id": "f" * 32})
+
+            self.assertEqual(result["status"], "cancelled")
+            verify.assert_not_called()
+            apply_cmd.assert_not_called()
+
+    def test_invalidate_stale_oracle_preparation_on_reboot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            status.write_text(json.dumps({
+                "status": "awaiting_confirmation",
+                "timestamp": 2_000_000_000,
+                "message": "ready",
+                "request_id": "1" * 32,
+                "boot_id": "before-reboot",
+                "dump_hashes": {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64},
+                "apply_consumed": False,
+            }))
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "current_boot_id", return_value="after-reboot"),
+            ):
+                changed = backup_control.invalidate_stale_oracle_preparation()
+                payload = json.loads(status.read_text())
+
+            self.assertTrue(changed)
+            self.assertEqual(payload["status"], "cancelled")
+            self.assertEqual(payload["dump_hashes"], {})
+
+    def test_failed_apply_is_not_retried_automatically(self):
+        hashes = {"imfs_central": "a" * 64, "imfs_tenant_apex": "b" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "oracle-sync-status.json"
+            log = root / "oracle-sync.log"
+            status.write_text(json.dumps({
+                "status": "applying",
+                "timestamp": 2_000_000_000,
+                "message": "queued",
+                "request_id": "2" * 32,
+                "boot_id": "boot-1",
+                "dump_hashes": hashes,
+                "apply_consumed": True,
+                "apply_started": False,
+                "started_at": 2_000_000_000,
+            }))
+            with (
+                patch.object(backup_control, "ORACLE_STATUS_FILE", status),
+                patch.object(backup_control, "ORACLE_LOG_FILE", log),
+                patch.object(backup_control, "CONTROL_ROOT", root),
+                patch.object(backup_control, "current_boot_id", return_value="boot-1"),
+                patch.object(backup_control, "verify_staged_dump_hashes", return_value=hashes),
+                patch.object(
+                    backup_control,
+                    "run_oracle_apply_commands",
+                    side_effect=RuntimeError("cutover failed; do not retry"),
+                ),
+            ):
+                failed = backup_control.run_oracle_apply({"request_id": "2" * 32})
+                retry = backup_control.run_oracle_apply({"request_id": "2" * 32})
+
+            self.assertEqual(failed["status"], "failed")
+            self.assertIn("cutover failed", failed["message"])
+            self.assertEqual(retry["status"], "failed")
+            self.assertIn("no valid preparation", retry["message"].lower())
 
 
 if __name__ == "__main__":

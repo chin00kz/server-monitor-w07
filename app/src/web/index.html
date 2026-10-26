@@ -1079,6 +1079,26 @@ canvas { opacity: .92; }
 .backup-download:hover:not(:disabled) { border-color: var(--acc); background: rgba(242, 140, 40, .1); }
 .backup-download:disabled { cursor: wait; opacity: .55; }
 .backup-files-empty { padding: 18px 10px; color: var(--mute); font-size: .78rem; }
+.oracle-sync-card { margin-top: 18px; }
+.oracle-sync-log {
+  margin-top: 14px; max-height: 220px; overflow: auto; padding: 12px;
+  border: 1px solid var(--line); background: var(--panel-deep);
+  color: var(--soft); font-family: Consolas, monospace; font-size: .74rem;
+  white-space: pre-wrap; word-break: break-word;
+}
+.oracle-confirm {
+  display: none; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.oracle-confirm.is-visible { display: block; }
+.oracle-confirm p { margin: 0 0 10px; color: var(--soft); font-size: .82rem; line-height: 1.45; }
+.oracle-confirm label { display: block; margin: 12px 0 6px; color: var(--mute); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+.oracle-confirm input {
+  width: min(100%, 360px); padding: 10px 12px; border: 1px solid var(--line);
+  background: var(--panel-deep); color: var(--text); font-family: Consolas, monospace;
+}
+.oracle-confirm .backup-actions { margin-top: 12px; }
+.backup-state-preparing, .backup-state-applying, .backup-state-awaiting_confirmation { color: var(--amber) !important; }
+.backup-state-cancelled { color: var(--mute) !important; }
 @media (max-width: 600px) {
   .backup-grid { grid-template-columns: minmax(0, 1fr); }
   .backup-actions { align-items: stretch; flex-direction: column; }
@@ -1575,6 +1595,35 @@ header.topbar {
       </table>
     </div>
     <div id="backup-files-message" class="backup-files-empty" hidden></div>
+  </div>
+  <div class="maintenance-card oracle-sync-card">
+    <div class="maintenance-header">
+      <div>
+        <div class="maintenance-label">DELL → ORACLE</div>
+        <div class="maintenance-status" id="oracle-sync-status">Loading Oracle sync…</div>
+      </div>
+      <span class="maintenance-badge" id="oracle-sync-badge">UNAVAILABLE</span>
+    </div>
+    <p class="sub" id="oracle-sync-message">Prepare exports and staging without replacing live Oracle databases. Confirm separately to apply.</p>
+    <div class="maintenance-metrics backup-grid">
+      <div><span>Started</span><strong id="oracle-sync-started">—</strong></div>
+      <div><span>Finished</span><strong id="oracle-sync-finished">—</strong></div>
+      <div><span>Duration</span><strong id="oracle-sync-duration">—</strong></div>
+      <div><span>Exit status</span><strong id="oracle-sync-exit">—</strong></div>
+    </div>
+    <div class="backup-actions">
+      <button id="oracle-sync-prepare" class="refresh-btn" type="button">Sync IMFS to Oracle</button>
+      <span id="oracle-sync-live" class="sub">Live execution is disabled until separately enabled on the host.</span>
+    </div>
+    <div id="oracle-sync-confirm" class="oracle-confirm" hidden>
+      <p><strong>Confirm Sync</strong> will replace live Oracle databases <code>imfs_central</code> and <code>imfs_tenant_apex</code>. The existing scripts create a recovery backup and retain previous databases as timestamped <code>imfs_prev_*</code> names during cutover. Live apply also drops any existing <code>imfs_next_*</code> databases before recreate. Do not retry after an uncertain partial cutover.</p>
+      <label for="oracle-sync-phrase">Type REPLACE-ORACLE-IMFS</label>
+      <input id="oracle-sync-phrase" type="text" autocomplete="off" spellcheck="false" placeholder="REPLACE-ORACLE-IMFS">
+      <div class="backup-actions">
+        <button id="oracle-sync-confirm-btn" class="refresh-btn" type="button">Confirm Sync</button>
+      </div>
+    </div>
+    <pre class="oracle-sync-log" id="oracle-sync-log" aria-label="Oracle sync output"></pre>
   </div>
 </section>
 
@@ -2968,6 +3017,9 @@ function renderBackupFiles(backups){
   }
 }
 
+let backupRequestInFlight = false;
+const BACKUP_NOW_LABEL = "Backup Now";
+
 function renderBackupStatus(data){
   const state = ["running", "successful", "failed", "unavailable"].includes(data?.status) ? data.status : "unavailable";
   const status = $("#backup-status"), badge = $("#backup-badge"), button = $("#backup-now");
@@ -2975,7 +3027,8 @@ function renderBackupStatus(data){
   status.className = `maintenance-status backup-state-${state}`;
   badge.textContent = state.toUpperCase();
   badge.className = `maintenance-badge backup-state-${state}`;
-  button.disabled = state === "running";
+  button.disabled = backupRequestInFlight || state === "running";
+  if (!backupRequestInFlight) button.textContent = BACKUP_NOW_LABEL;
 
   const renderTime = (selector, item) => {
     const element = $(selector);
@@ -2999,7 +3052,9 @@ function renderBackupStatus(data){
   $("#backup-storage-text").textContent = storageOk ? `${units(storage.used)} used · ${units(storage.free)} free` : "Unavailable";
   $("#backup-storage-bar").style.width = `${percent}%`;
   $(".backup-progress").setAttribute("aria-valuenow", String(Math.round(percent)));
-  $("#backup-message").textContent = data?.message || "Backup status is unavailable";
+  if (!backupRequestInFlight) {
+    $("#backup-message").textContent = data?.message || "Backup status is unavailable";
+  }
   renderBackupFiles(data?.backups);
 }
 
@@ -3017,19 +3072,144 @@ async function pollBackups(schedule = true){
 }
 
 $("#backup-now").addEventListener("click", async () => {
-  if (!confirm("Start the existing PostgreSQL backup and Google Drive upload now?")) return;
   const button = $("#backup-now");
+  if (backupRequestInFlight || button.disabled) return;
+  if (!window.confirm("Start the existing PostgreSQL backup and Google Drive upload now?")) return;
+  backupRequestInFlight = true;
   button.disabled = true;
+  button.textContent = "Starting backup…";
   $("#backup-message").textContent = "Queuing backup…";
   try {
     const response = await fetch("/api/backups/run", {method: "POST"});
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     if (response.status === 401) { location = "/login"; return; }
     if (!response.ok) throw new Error(data.detail || "Backup request failed");
+    backupRequestInFlight = false;
+    button.textContent = BACKUP_NOW_LABEL;
     renderBackupStatus(data);
   } catch (error) {
-    $("#backup-message").textContent = error.message || "Backup request failed";
+    backupRequestInFlight = false;
+    button.textContent = BACKUP_NOW_LABEL;
     button.disabled = false;
+    $("#backup-message").textContent = error.message || "Backup request failed";
+  }
+});
+
+const ORACLE_SYNC_STATES = ["preparing", "awaiting_confirmation", "applying", "successful", "failed", "cancelled", "unavailable"];
+const ORACLE_PREPARE_LABEL = "Sync IMFS to Oracle";
+const ORACLE_CONFIRM_LABEL = "Confirm Sync";
+let oracleSyncRequestId = null;
+let oraclePrepareInFlight = false;
+let oracleConfirmInFlight = false;
+
+function formatOracleTime(value){
+  return Number.isInteger(value) ? new Date(value * 1000).toLocaleString() : "—";
+}
+
+function renderOracleSync(data){
+  const state = ORACLE_SYNC_STATES.includes(data?.status) ? data.status : "unavailable";
+  const status = $("#oracle-sync-status");
+  const badge = $("#oracle-sync-badge");
+  const prepare = $("#oracle-sync-prepare");
+  const confirmWrap = $("#oracle-sync-confirm");
+  const confirmBtn = $("#oracle-sync-confirm-btn");
+  const label = state.replace(/_/g, " ");
+  status.textContent = label[0].toUpperCase() + label.slice(1);
+  status.className = `maintenance-status backup-state-${state}`;
+  badge.textContent = state.toUpperCase();
+  badge.className = `maintenance-badge backup-state-${state}`;
+  if (!oraclePrepareInFlight && !oracleConfirmInFlight) {
+    $("#oracle-sync-message").textContent = data?.message || "Oracle sync status is unavailable";
+  }
+  $("#oracle-sync-started").textContent = formatOracleTime(data?.started_at);
+  $("#oracle-sync-finished").textContent = formatOracleTime(data?.finished_at);
+  $("#oracle-sync-duration").textContent = Number.isInteger(data?.duration_seconds) ? `${data.duration_seconds}s` : "—";
+  $("#oracle-sync-exit").textContent = Number.isInteger(data?.exit_status) ? String(data.exit_status) : "—";
+  $("#oracle-sync-log").textContent = typeof data?.log === "string" ? data.log : "";
+  $("#oracle-sync-live").textContent = data?.live_enabled
+    ? "Live Oracle sync is enabled on this host."
+    : "Live execution is disabled until separately enabled on the host.";
+  oracleSyncRequestId = data?.request_id || null;
+  const busy = state === "preparing" || state === "applying";
+  prepare.disabled = oraclePrepareInFlight || busy || state === "awaiting_confirmation";
+  if (!oraclePrepareInFlight) prepare.textContent = ORACLE_PREPARE_LABEL;
+  const showConfirm = state === "awaiting_confirmation" && !!oracleSyncRequestId;
+  confirmWrap.hidden = !showConfirm;
+  confirmWrap.classList.toggle("is-visible", showConfirm);
+  confirmBtn.disabled = oracleConfirmInFlight || busy || !showConfirm;
+  if (!oracleConfirmInFlight) confirmBtn.textContent = ORACLE_CONFIRM_LABEL;
+  if (!showConfirm && !oracleConfirmInFlight) $("#oracle-sync-phrase").value = "";
+}
+
+async function pollOracleSync(schedule = true){
+  try {
+    const response = await fetch("/api/backups/oracle-sync", {cache: "no-store"});
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error("Oracle sync status unavailable");
+    const data = await response.json();
+    renderOracleSync(data);
+    const active = ["preparing", "applying", "awaiting_confirmation"].includes(data?.status);
+    if (schedule) setTimeout(() => pollOracleSync(true), active ? 1500 : 10000);
+  } catch (error) {
+    renderOracleSync({status: "unavailable", message: "Oracle sync status is unavailable", log: ""});
+    if (schedule) setTimeout(() => pollOracleSync(true), 10000);
+  }
+}
+
+$("#oracle-sync-prepare").addEventListener("click", async () => {
+  // No generic confirm here: prepare is non-destructive; REPLACE-ORACLE-IMFS gates apply.
+  const button = $("#oracle-sync-prepare");
+  if (oraclePrepareInFlight || button.disabled) return;
+  oraclePrepareInFlight = true;
+  button.disabled = true;
+  button.textContent = "Preparing…";
+  $("#oracle-sync-message").textContent = "Queuing Oracle sync prepare…";
+  try {
+    const response = await fetch("/api/backups/oracle-sync/prepare", {method: "POST"});
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error(data.detail || "Oracle sync prepare failed");
+    oraclePrepareInFlight = false;
+    button.textContent = ORACLE_PREPARE_LABEL;
+    renderOracleSync(data);
+  } catch (error) {
+    oraclePrepareInFlight = false;
+    button.textContent = ORACLE_PREPARE_LABEL;
+    button.disabled = false;
+    $("#oracle-sync-message").textContent = error.message || "Oracle sync prepare failed";
+  }
+});
+
+$("#oracle-sync-confirm-btn").addEventListener("click", async () => {
+  const phrase = $("#oracle-sync-phrase").value || "";
+  if (!oracleSyncRequestId) {
+    $("#oracle-sync-message").textContent = "No preparation is awaiting confirmation";
+    return;
+  }
+  const button = $("#oracle-sync-confirm-btn");
+  if (oracleConfirmInFlight || button.disabled) return;
+  oracleConfirmInFlight = true;
+  button.disabled = true;
+  button.textContent = "Confirming…";
+  $("#oracle-sync-message").textContent = "Queuing Oracle sync apply…";
+  try {
+    const response = await fetch("/api/backups/oracle-sync/confirm", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({confirmation: phrase, request_id: oracleSyncRequestId}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) { location = "/login"; return; }
+    if (!response.ok) throw new Error(data.detail || "Oracle sync confirm failed");
+    $("#oracle-sync-phrase").value = "";
+    oracleConfirmInFlight = false;
+    button.textContent = ORACLE_CONFIRM_LABEL;
+    renderOracleSync(data);
+  } catch (error) {
+    oracleConfirmInFlight = false;
+    button.textContent = ORACLE_CONFIRM_LABEL;
+    button.disabled = false;
+    $("#oracle-sync-message").textContent = error.message || "Oracle sync confirm failed";
   }
 });
 
@@ -3117,7 +3297,8 @@ async function triggerRefresh(){
     pollPostgresHealth(),
     pollAlertHistory(),
     pollNetworkUsage(false),
-    pollBackups(false)
+    pollBackups(false),
+    pollOracleSync(false),
   ]);
 
   const failedChecks = checkResults.filter(r => r.status === "rejected");
@@ -3175,6 +3356,7 @@ pollAlertHistory();
 pollPostgresHealth();
 pollNetworkUsage();
 pollBackups();
+pollOracleSync();
 $("#range").value=localStorage.getItem("sm_range")||"6";
 $("#range").onchange=()=>{localStorage.setItem("sm_range",$("#range").value);charts.forEach(c=>c.load(hours()))};
 $("#out").onclick=async()=>{await fetch("/api/logout",{method:"POST"});location="/login"};
