@@ -1070,16 +1070,21 @@ canvas { opacity: .92; }
 .backup-files-heading { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .backup-files-heading h3 { margin: 0; font-size: 1rem; font-weight: 650; }
 .backup-files-heading p { margin: 5px 0 0; color: var(--mute); font-size: .74rem; }
+.backup-files-scroll { max-height: 320px; overflow: auto; margin-top: 0; }
 .backup-files-table { width: 100%; border-collapse: collapse; }
 .backup-files-table th, .backup-files-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
-.backup-files-table th { color: var(--mute); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase; }
+.backup-files-table th {
+  color: var(--mute); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase;
+  position: sticky; top: 0; background: var(--panel); z-index: 1;
+}
 .backup-files-table td { color: var(--soft); font-family: Consolas, monospace; font-size: .79rem; }
 .backup-files-table th:last-child, .backup-files-table td:last-child { width: 84px; text-align: center; }
 .backup-download { min-width: 34px; min-height: 30px; border: 1px solid var(--line); color: var(--acc-soft); font-size: 1rem; }
 .backup-download:hover:not(:disabled) { border-color: var(--acc); background: rgba(242, 140, 40, .1); }
 .backup-download:disabled { cursor: wait; opacity: .55; }
 .backup-files-empty { padding: 18px 10px; color: var(--mute); font-size: .78rem; }
-.oracle-sync-card { margin-top: 18px; }
+.oracle-sync-card { margin-top: 0; }
+.backups-pg-heading { margin-top: 28px; }
 .oracle-sync-log {
   margin-top: 14px; max-height: 220px; overflow: auto; padding: 12px;
   border: 1px solid var(--line); background: var(--panel-deep);
@@ -1552,7 +1557,36 @@ header.topbar {
 
 
 <section id="backups-section">
-  <div class="section-heading">
+  <div class="maintenance-card oracle-sync-card">
+    <div class="maintenance-header">
+      <div>
+        <div class="maintenance-label">homelab@workstation07→ Oracle@ubsever02</div>
+        <div class="maintenance-status" id="oracle-sync-status">Loading Oracle sync…</div>
+      </div>
+      <span class="maintenance-badge" id="oracle-sync-badge">UNAVAILABLE</span>
+    </div>
+    <p class="sub" id="oracle-sync-message">Prepare exports and staging without replacing live Oracle databases. Confirm separately to apply.</p>
+    <div class="maintenance-metrics backup-grid">
+      <div><span>Started</span><strong id="oracle-sync-started">—</strong></div>
+      <div><span>Finished</span><strong id="oracle-sync-finished">—</strong></div>
+      <div><span>Duration</span><strong id="oracle-sync-duration">—</strong></div>
+      <div><span>Exit status</span><strong id="oracle-sync-exit">—</strong></div>
+    </div>
+    <div class="backup-actions">
+      <button id="oracle-sync-prepare" class="refresh-btn" type="button">Sync IMFS to Oracle</button>
+      <span id="oracle-sync-live" class="sub">Prepare exports and stages dumps. Confirm with REPLACE-ORACLE-IMFS before live databases are replaced.</span>
+    </div>
+    <div id="oracle-sync-confirm" class="oracle-confirm" hidden>
+      <p><strong>Confirm Sync</strong> will replace live Oracle databases <code>imfs_central</code> and <code>imfs_tenant_apex</code>. The existing scripts create a recovery backup and retain previous databases as timestamped <code>imfs_prev_*</code> names during cutover. Live apply also drops any existing <code>imfs_next_*</code> databases before recreate. Do not retry after an uncertain partial cutover.</p>
+      <label for="oracle-sync-phrase">Type REPLACE-ORACLE-IMFS</label>
+      <input id="oracle-sync-phrase" type="text" autocomplete="off" spellcheck="false" placeholder="REPLACE-ORACLE-IMFS">
+      <div class="backup-actions">
+        <button id="oracle-sync-confirm-btn" class="refresh-btn" type="button">Confirm Sync</button>
+      </div>
+    </div>
+    <pre class="oracle-sync-log" id="oracle-sync-log" aria-label="Oracle sync output"></pre>
+  </div>
+  <div class="section-heading backups-pg-heading">
     <div>
       <div class="eyebrow">DATA PROTECTION</div>
       <h2>PostgreSQL Backups</h2>
@@ -1588,42 +1622,13 @@ header.topbar {
       <h3>Local Backup Files</h3>
       <p>Download a complete backup folder as a temporary ZIP archive</p>
     </div>
-    <div style="overflow-x:auto">
+    <div class="backup-files-scroll">
       <table class="backup-files-table">
         <thead><tr><th>Name</th><th>Date</th><th>Download</th></tr></thead>
         <tbody id="backup-files-body"><tr><td colspan="3">Loading local backups…</td></tr></tbody>
       </table>
     </div>
     <div id="backup-files-message" class="backup-files-empty" hidden></div>
-  </div>
-  <div class="maintenance-card oracle-sync-card">
-    <div class="maintenance-header">
-      <div>
-        <div class="maintenance-label">DELL → ORACLE</div>
-        <div class="maintenance-status" id="oracle-sync-status">Loading Oracle sync…</div>
-      </div>
-      <span class="maintenance-badge" id="oracle-sync-badge">UNAVAILABLE</span>
-    </div>
-    <p class="sub" id="oracle-sync-message">Prepare exports and staging without replacing live Oracle databases. Confirm separately to apply.</p>
-    <div class="maintenance-metrics backup-grid">
-      <div><span>Started</span><strong id="oracle-sync-started">—</strong></div>
-      <div><span>Finished</span><strong id="oracle-sync-finished">—</strong></div>
-      <div><span>Duration</span><strong id="oracle-sync-duration">—</strong></div>
-      <div><span>Exit status</span><strong id="oracle-sync-exit">—</strong></div>
-    </div>
-    <div class="backup-actions">
-      <button id="oracle-sync-prepare" class="refresh-btn" type="button">Sync IMFS to Oracle</button>
-      <span id="oracle-sync-live" class="sub">Prepare exports and stages dumps. Confirm with REPLACE-ORACLE-IMFS before live databases are replaced.</span>
-    </div>
-    <div id="oracle-sync-confirm" class="oracle-confirm" hidden>
-      <p><strong>Confirm Sync</strong> will replace live Oracle databases <code>imfs_central</code> and <code>imfs_tenant_apex</code>. The existing scripts create a recovery backup and retain previous databases as timestamped <code>imfs_prev_*</code> names during cutover. Live apply also drops any existing <code>imfs_next_*</code> databases before recreate. Do not retry after an uncertain partial cutover.</p>
-      <label for="oracle-sync-phrase">Type REPLACE-ORACLE-IMFS</label>
-      <input id="oracle-sync-phrase" type="text" autocomplete="off" spellcheck="false" placeholder="REPLACE-ORACLE-IMFS">
-      <div class="backup-actions">
-        <button id="oracle-sync-confirm-btn" class="refresh-btn" type="button">Confirm Sync</button>
-      </div>
-    </div>
-    <pre class="oracle-sync-log" id="oracle-sync-log" aria-label="Oracle sync output"></pre>
   </div>
 </section>
 
